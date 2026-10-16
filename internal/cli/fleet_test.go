@@ -48,8 +48,6 @@ func TestInitAfterAMoveSkipsAWorktreeWithoutAGitFile(t *testing.T) {
 	wt3 := field(fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t3"), "worktree")
 	fx.h.ok("attempt", "stop", "a1")
 	fx.h.ok("attempt", "stop", "a2")
-	// The worktree git no longer knows: only leftover build output, no .git.
-	// There is nothing to repair here; attempt clean owns the directory.
 	if err := os.Remove(filepath.Join(wt3, ".git")); err != nil {
 		t.Fatal(err)
 	}
