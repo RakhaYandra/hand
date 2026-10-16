@@ -25,15 +25,18 @@ import (
 
 const launchWait = 2 * time.Second
 
-const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--pr]"
+const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--delivered]"
 
 func init() {
 	commands["open"] = cmdOpen
 }
 
 func cmdOpen(r *runner, args []string) error {
+	if slices.ContainsFunc(args, func(a string) bool { return a == "--pr" || a == "-pr" }) {
+		return usageError{"open: --pr is gone; use --delivered, as in `hand open t3 --delivered`"}
+	}
 	set := flags("open")
-	pr := set.Bool("pr", false, "open the task's newest PR link instead of its board page")
+	delivered := set.Bool("delivered", false, "open the task's newest deliverable instead of its board page")
 	printed := set.Bool("print", false, "print the link instead of opening it; a board link holds the fleet's token")
 	if err := set.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("open: %v; %s", err, openUsage)}
@@ -55,15 +58,27 @@ func cmdOpen(r *runner, args []string) error {
 	}
 	defer st.Close()
 	ctx := r.ctx()
-	if *pr {
-		link, err := newestPR(ctx, st, ref)
+	if *delivered {
+		d, err := newestDeliverable(ctx, st, ref)
 		if err != nil {
 			return err
 		}
 		if *printed {
-			return r.printLink(link, "")
+			if d.Kind == "file" {
+				var out toon.Doc
+				out.Field("path", d.Ref)
+				return r.print(&out)
+			}
+			return r.printLink(d.Ref, "")
 		}
-		return r.launch(link, link, "open "+link+" yourself")
+		if strings.HasPrefix(d.Ref, `\\`) {
+			return fmt.Errorf("%w: UNC paths are not opened, because Windows would connect to the host they name: %s", state.ErrConflict, d.Ref)
+		}
+		target := d.Ref
+		if d.Kind == "file" {
+			target = folderOf(d.Ref)
+		}
+		return r.launch(target, target, "open "+target+" yourself")
 	}
 	path, frag, err := boardPage(ctx, st, ref)
 	if err != nil {
@@ -125,27 +140,42 @@ func boardPage(ctx context.Context, st *state.Store, ref string) (string, string
 	}
 }
 
-func newestPR(ctx context.Context, st *state.Store, ref string) (string, error) {
+func newestDeliverable(ctx context.Context, st *state.Store, ref string) (board.Deliverable, error) {
 	if !strings.HasPrefix(ref, "t") {
-		return "", usageError{"open: --pr needs a task, as in `hand open t3 --pr`"}
+		return board.Deliverable{}, usageError{"open: --delivered needs a task, as in `hand open t3 --delivered`"}
 	}
 	id, err := parseID("t", ref)
 	if err != nil {
-		return "", err
+		return board.Deliverable{}, err
 	}
 	if _, err := st.Task(ctx, id); err != nil {
-		return "", err
+		return board.Deliverable{}, err
 	}
 	reports, err := st.Reports(ctx, state.ReportFilter{TaskID: id}, 500)
 	if err != nil {
-		return "", err
+		return board.Deliverable{}, err
 	}
 	for i := len(reports) - 1; i >= 0; i-- {
-		if links := board.PRLinks(reports[i].Body); len(links) > 0 {
-			return links[len(links)-1], nil
+		if found := board.Deliverables(reports[i].Body); len(found) > 0 {
+			return found[len(found)-1], nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s has no PR link in its reports", state.ErrNotFound, ref)
+	return board.Deliverable{}, fmt.Errorf("%w: %s has no deliverable in its reports", state.ErrNotFound, ref)
+}
+
+func folderOf(path string) string {
+	trimmed := strings.TrimRight(path, `/\`)
+	i := strings.LastIndexAny(trimmed, `/\`)
+	if i < 0 {
+		return path
+	}
+	if info, err := os.Stat(trimmed); err == nil && info.IsDir() {
+		return trimmed
+	}
+	if parent := trimmed[:i]; parent != "" && !strings.HasSuffix(parent, ":") {
+		return parent
+	}
+	return trimmed[:i+1]
 }
 
 func boardAddr(ctx context.Context, root, id, token string) (string, error) {
