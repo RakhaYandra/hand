@@ -356,6 +356,12 @@ func repairWorktrees(ctx context.Context, st *state.Store) error {
 		if _, err := os.Stat(a.Worktree); err != nil {
 			continue
 		}
+		if _, err := os.Stat(filepath.Join(a.Worktree, ".git")); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return err
+		}
 		t, err := st.Task(ctx, a.TaskID)
 		if err != nil {
 			return err

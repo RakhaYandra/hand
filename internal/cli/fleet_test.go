@@ -30,6 +30,44 @@ func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
 	}
 }
 
+func TestInitAfterAMoveSkipsAWorktreeWithoutAGitFile(t *testing.T) {
+	fx := newAttemptFixture(t)
+	inner := filepath.Join(fx.h.home, "projects", "inner")
+	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(gitRepo(t), inner); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.ok("project", "add", "inner", inner)
+	fx.h.ok("task", "add", "inner", "Inner work one")
+	fx.h.ok("task", "add", "inner", "Inner work two")
+	fx.h.ok("task", "start", "t2")
+	fx.h.ok("task", "start", "t3")
+	wt2 := field(fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t2"), "worktree")
+	wt3 := field(fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t3"), "worktree")
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "stop", "a2")
+	if err := os.Remove(filepath.Join(wt3, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(fx.h.home, moved); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.home = moved
+	if out, err := exec.Command("git", "-C", wt2, "status", "--short").CombinedOutput(); err == nil {
+		t.Fatalf("worktree still works before repair: %s", out)
+	}
+	fx.h.ok("init")
+	if out, err := exec.Command("git", "-C", wt2, "status", "--short").CombinedOutput(); err != nil {
+		t.Fatalf("worktree broken after init: %v: %s", err, out)
+	}
+	if _, err := os.Stat(wt3); err != nil {
+		t.Fatalf("skipped worktree left nothing for attempt clean: %v", err)
+	}
+}
+
 func TestInitAfterAMoveRepairsWorktreesOfProjectsInsideTheHome(t *testing.T) {
 	fx := newAttemptFixture(t)
 	inner := filepath.Join(fx.h.home, "projects", "inner")
