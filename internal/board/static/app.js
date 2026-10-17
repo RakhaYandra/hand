@@ -37,11 +37,11 @@
 	const toBottom = (el) => {
 		el.scrollTop = reversed(el) ? 0 : el.scrollHeight;
 	};
-	const tall = matchMedia("(min-height: 600px)");
+	const fills = matchMedia("(min-height: 600px), (min-width: 900px)");
 	const page = () => document.scrollingElement || document.documentElement;
-	const gap = (el) => (tall.matches ? fromBottom(el) : page().scrollHeight - page().scrollTop - page().clientHeight);
+	const gap = (el) => (fills.matches ? fromBottom(el) : page().scrollHeight - page().scrollTop - page().clientHeight);
 	const pin = (el) => {
-		if (tall.matches) toBottom(el);
+		if (fills.matches) toBottom(el);
 		else page().scrollTop = page().scrollHeight;
 	};
 
@@ -378,20 +378,23 @@
 	});
 
 	const tabs = [...document.querySelectorAll("[data-tab]")];
-	const hashed = location.hash.slice(1);
-	let current = tabs.some((t) => t.dataset.tab === hashed) ? hashed : waiting > 0 ? "needs" : "chat";
-	const desk = matchMedia("(min-width:1024px)");
+	const owner = (id) => tabs.find((t) => t.dataset.tab === id || document.getElementById(t.dataset.tab)?.contains(document.getElementById(id)))?.dataset.tab;
+	let current = owner(location.hash.slice(1)) || owner(waiting > 0 ? "needs" : "chat") || tabs[0]?.dataset.tab;
+	const wide = matchMedia("(min-width:900px)");
 	const select = () => {
 		for (const t of tabs) {
 			const on = t.dataset.tab === current;
 			if (on) t.setAttribute("aria-current", "true");
 			else t.removeAttribute("aria-current");
 			const panel = document.getElementById(t.dataset.tab);
-			if (panel) panel.hidden = !on && !desk.matches;
+			if (panel) panel.hidden = !on && !wide.matches;
 		}
+		const linked = document.getElementById(location.hash.slice(1));
+		const nested = linked && !tabs.some((t) => t.dataset.tab === linked.id);
 		const timeline = regions.get("timeline");
-		if (timeline && current === "chat") pin(timeline);
-		if (current === "needs" && !tall.matches) {
+		if (timeline && current === "chat" && !(nested && timeline.contains(linked))) pin(timeline);
+		if (!nested) document.querySelector(".work")?.scrollTo(0, 0);
+		if (current !== "chat" && !fills.matches) {
 			scrollTo(0, 0);
 			requestAnimationFrame(() => scrollTo(0, 0));
 		}
@@ -406,16 +409,95 @@
 			});
 		}
 		select();
-		desk.addEventListener("change", select);
+		wide.addEventListener("change", select);
 		addEventListener("hashchange", () => {
-			const next = location.hash.slice(1);
-			if (next === current || !tabs.some((t) => t.dataset.tab === next)) return;
+			const next = owner(location.hash.slice(1));
+			if (!next || next === current) return;
 			current = next;
 			select();
 		});
 		addEventListener("load", () => {
-			if (current === "needs" && !tall.matches) scrollTo(0, 0);
+			if (current !== "chat" && !fills.matches) scrollTo(0, 0);
 		}, { once: true });
+	}
+
+	const pane = document.querySelector("body[data-page=fleet] .sup");
+	if (pane) {
+		const root = document.documentElement.style;
+		const board = pane.closest(".board");
+		const recall = () => {
+			try {
+				return Number(localStorage.getItem("hand.chat"));
+			} catch {
+				return 0;
+			}
+		};
+		const remember = (px) => {
+			try {
+				if (px) localStorage.setItem("hand.chat", String(px));
+				else localStorage.removeItem("hand.chat");
+			} catch {
+				return;
+			}
+		};
+		const saved = recall();
+		if (Number.isFinite(saved) && saved > 0) root.setProperty("--chat", `${saved}px`);
+		const split = document.createElement("div");
+		split.className = "split";
+		split.tabIndex = 0;
+		for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "vertical", "aria-controls": "chat", "aria-label": "Chat width", title: "Drag to resize the chat. Double-click resets it." })) split.setAttribute(k, v);
+		pane.prepend(split);
+		const bounds = () => [360, Math.max(360, board.clientWidth - 440)];
+		const width = () => Math.round(pane.getBoundingClientRect().width);
+		const mark = () => {
+			const [lo, hi] = bounds();
+			split.setAttribute("aria-valuemin", String(lo));
+			split.setAttribute("aria-valuemax", String(hi));
+			split.setAttribute("aria-valuenow", String(width()));
+			split.setAttribute("aria-valuetext", `${width()} pixels`);
+		};
+		const size = (px) => {
+			const [lo, hi] = bounds();
+			root.setProperty("--chat", `${Math.round(Math.min(hi, Math.max(lo, px)))}px`);
+			mark();
+		};
+		const reset = () => {
+			root.removeProperty("--chat");
+			remember(0);
+			mark();
+		};
+		split.addEventListener("pointerdown", (e) => {
+			if (e.button !== 0) return;
+			e.preventDefault();
+			split.setPointerCapture(e.pointerId);
+			const from = width();
+			let moved = false;
+			body.dataset.drag = "";
+			const move = (m) => {
+				moved = true;
+				size(from + e.clientX - m.clientX);
+			};
+			split.addEventListener("pointermove", move);
+			split.addEventListener("lostpointercapture", () => {
+				split.removeEventListener("pointermove", move);
+				delete body.dataset.drag;
+				if (moved) remember(width());
+			}, { once: true });
+		});
+		split.addEventListener("keydown", (e) => {
+			const [lo, hi] = bounds();
+			const step = e.shiftKey ? 64 : 16;
+			const next = { ArrowLeft: width() + step, ArrowRight: width() - step, Home: lo, End: hi }[e.key];
+			if (e.key === "Enter") reset();
+			else if (next !== undefined) {
+				size(next);
+				remember(width());
+			} else return;
+			e.preventDefault();
+		});
+		split.addEventListener("dblclick", reset);
+		addEventListener("resize", mark);
+		mark();
 	}
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
@@ -455,7 +537,7 @@
 		new ResizeObserver(() => {
 			if (near && composer.offsetHeight > 0) pin(timeline);
 		}).observe(composer);
-		tall.addEventListener("change", () => {
+		fills.addEventListener("change", () => {
 			if (near && composer.offsetHeight > 0) requestAnimationFrame(() => pin(timeline));
 		});
 	}

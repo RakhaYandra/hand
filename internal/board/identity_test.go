@@ -140,7 +140,7 @@ func TestTypeHasFiveSteps(t *testing.T) {
 	contains(t, "live figures", css, ".live{font-variant-numeric:tabular-nums")
 }
 
-var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "chevron", "interrupt", "more"}
+var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "chevron", "interrupt", "more", "search"}
 
 func TestIconsAreOwnInlineSVG(t *testing.T) {
 	src, err := os.ReadFile("templates/icons.html")
@@ -179,11 +179,17 @@ func TestFirstViewportOrder(t *testing.T) {
 		}
 		return i
 	}
-	order := []string{`data-region="status"`, `id="needs"`, `data-region="queue"`, `data-region="tasks"`, `id="chat"`, `data-region="timeline"`, `id="composer"`, `data-region="console"`}
+	order := []string{`data-region="status"`, `id="needs"`, `data-region="queue"`, `id="tasks"`, `data-region="tasks"`, `id="chat"`, `data-region="console"`, `data-region="timeline"`, `id="composer"`}
 	for i := 1; i < len(order); i++ {
 		if at(order[i-1]) > at(order[i]) {
 			t.Fatalf("%s comes after %s", order[i-1], order[i])
 		}
+	}
+	if n := strings.Count(body, ` data-region="`); n != 5 {
+		t.Fatalf("the fleet page has %d regions, want status, console, timeline, queue and tasks", n)
+	}
+	for _, name := range regionNames {
+		lacks(t, name, region(body, name), `id="composer"`)
 	}
 }
 
@@ -194,8 +200,8 @@ func TestPhoneTabsWorkWithoutJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs <span class="badge n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
-	for _, id := range []string{"needs", "chat"} {
+	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#tasks"`, `href="#chat"`, `Needs <span class="badge n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
+	for _, id := range []string{"needs", "tasks", "chat"} {
 		tag := regexp.MustCompile(`<[a-z]+[^>]*id="` + id + `"[^>]*>`).FindString(body)
 		if tag == "" || strings.Contains(tag, "hidden") {
 			t.Fatalf("section %s = %q", id, tag)
@@ -218,31 +224,27 @@ func TestHiddenSectionsStayHidden(t *testing.T) {
 
 func TestTheAppShellNeedsHeight(t *testing.T) {
 	css := asset(t, "board.css")
-	if !strings.Contains(css, "@media (min-height:600px){") || !strings.Contains(css, "@media (max-height:599px){") || !strings.Contains(css, "[data-shell]") {
+	if !strings.Contains(css, "@media (min-height:600px),(min-width:900px){") || !strings.Contains(css, "@media (max-height:599px){") || !strings.Contains(css, "[data-shell]") {
 		t.Fatal("a short landscape phone gets neither the shell nor the flowing page, so the composer is cut off")
 	}
 }
 
-func TestNeedsIsARailAtDeskWidth(t *testing.T) {
+func TestNeedsAndTasksSitBesideTheChatAtBoardWidth(t *testing.T) {
 	css := asset(t, "board.css")
-	i := strings.Index(css, "@media (min-width:1024px){")
-	if i < 0 {
-		t.Fatal("board.css has no desk-width query")
+	if !strings.Contains(css, "@media (min-width:900px){") {
+		t.Fatal("board.css has no board-width query")
 	}
-	desk := css[i:]
-	desk = desk[:strings.Index(desk, "}}")+2]
-	contains(t, "desk width", desk, "grid-template-columns:minmax(0,760px) minmax(360px,400px)", "#needs{grid-column:2;grid-row:1;", "overflow-y:auto", "#chat{grid-column:1;grid-row:1", ".tabs{display:none}")
-	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:1024px)")`)
+	contains(t, "board width", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .board{display:grid;grid-template-columns:minmax(0,1fr) var(--pane)}", ".tabs{display:none}", ".sup{position:relative;border-left:1px solid var(--line);background:var(--panel)}", ".work>.panel{padding:24px 32px 0}")
+	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:900px)")`)
 }
 
-func TestTabsBelowDeskWidth(t *testing.T) {
+func TestTabsBelowBoardWidth(t *testing.T) {
 	css := asset(t, "board.css")
-	if strings.Contains(css[:strings.Index(css, "@media (min-width:1024px){")], ".tabs{display:none}") {
-		t.Fatal("the tabs are hidden below desk width")
+	if strings.Contains(css[:strings.Index(css, "@media (min-width:900px){")], ".tabs{display:none}") {
+		t.Fatal("the tabs are hidden below board width")
 	}
-	if !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:760px") {
-		t.Fatal("below desk width the tabbed panels are not held to the 760px column")
-	}
+	contains(t, "tabs", block(t, css, "@media (max-width:899px){"), "#tasks .panel-head h2{display:none}", ".work:not(:has(>.panel:not([hidden]))){display:none}")
+	contains(t, "panels", css, ".work>.panel{width:100%;max-width:880px;margin:0 auto;padding:16px 16px 0}")
 }
 
 func TestTheComposerGrowsButStopsAt40dvh(t *testing.T) {
@@ -325,7 +327,6 @@ func TestTheFinishFixesHold(t *testing.T) {
 		".md table{width:max-content;",
 		"max-height:calc(100dvh - 120px);overflow-y:auto;",
 		"height:var(--control);padding:0 8px 0 10px;white-space:nowrap;",
-		"@media (min-width:600px) and (max-width:799px){.console{flex-wrap:wrap}}",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
@@ -348,7 +349,7 @@ func TestFleetLinksKeepTheirTab(t *testing.T) {
 	if strings.Contains(body, "Show finished tasks") {
 		t.Fatal("the rail still offers Show finished tasks")
 	}
-	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#needs">Hide finished tasks`)
+	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#tasks">Hide finished tasks`)
 }
 
 func TestTheOnCallPalette(t *testing.T) {
@@ -370,9 +371,9 @@ func TestTheOnCallPalette(t *testing.T) {
 	contains(t, "control edges", css,
 		"textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong)",
 		"height:var(--control);padding:0 12px;border:1px solid var(--line-strong)",
-		"padding:10px;border:1px solid var(--line-strong)",
+		"padding:4px 4px 8px;border:1px solid var(--line-strong)",
 		"width:var(--control);height:var(--control);border:1px solid var(--line-strong)")
-	contains(t, "tokens", css, "--r-sm:4px;--r-md:6px;--r-lg:10px;--control:32px;--badge:20px}", "@media (pointer:coarse){:root{--control:44px}}")
+	contains(t, "tokens", css, "--r-sm:4px;--r-md:6px;--r-lg:10px;--control:32px;--badge:20px;--pane:", "@media (pointer:coarse){:root{--control:44px}}")
 	lacks(t, "deleted tokens", css, "--pencil", "--canary", "--carbon", "--h-", "--ink-band", "--flash", "--header", "--on-header")
 	if !strings.Contains(css, "--mono:ui-monospace") {
 		t.Error("board.css has no --mono stack")
@@ -400,19 +401,68 @@ func TestTheOnCallPalette(t *testing.T) {
 	}
 }
 
-func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
+func TestTheSupervisorControlsRenderInThePaneHead(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	body := get(t, fx.handler(), "/")
-	box := body[strings.Index(body, `<div class="console-box">`):]
-	box = box[:strings.Index(box, "</section></div>")]
-	contains(t, "console box", box, `<form id="composer"`, `data-region="console"`)
+	pane := body[strings.Index(body, `id="chat"`):]
+	head, timeline, box := strings.Index(pane, `<section class="console" data-region="console">`), strings.Index(pane, `data-region="timeline"`), strings.Index(pane, `<div class="console-box">`)
+	if head < 0 || timeline < head || box < timeline {
+		t.Fatalf("pane order: console %d, timeline %d, composer box %d", head, timeline, box)
+	}
+	contains(t, "pane head", region(body, "console"), `<span class="sup-ref">s1</span>`, `id="model-menu"`, `action="/supervisor/stop"`, `id="more-menu"`)
+	form := pane[box:]
+	form = form[:strings.Index(form, "</form></div>")]
+	lacks(t, "composer box", form, `data-region="console"`, "/supervisor/stop", `id="model-menu"`)
 	css := asset(t, "board.css")
-	for _, rule := range []string{`grid-template-areas:"text text text" "console hint send"`, "#composer{display:contents}", ".menu-body{position:absolute;bottom:calc(100% + 6px)"} {
+	for _, rule := range []string{".console{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:8px 16px;border-bottom:1px solid var(--line)}", ".menu-body{position:absolute;top:calc(100% + 6px);left:0;", "#more-menu .menu-body{left:auto;right:0;"} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
 		}
 	}
+}
+
+func TestTheTasksHeadCarriesTheSearch(t *testing.T) {
+	body := get(t, newFixture(t).handler(), "/")
+	head := body[strings.Index(body, `<div class="panel" id="tasks">`):]
+	head = head[:strings.Index(head, `data-region="tasks"`)]
+	contains(t, "tasks head", head, `<h2>Tasks</h2>`, `<form class="task-search" role="search" method="get" action="/tasks">`, `<input type="search" name="q" placeholder="Search tasks" aria-label="Search tasks"`)
+	lacks(t, "tasks region", region(body, "tasks"), "task-search", "<h2>")
+}
+
+func TestTheChatPaneResizesInsideTheClamp(t *testing.T) {
+	css, js := asset(t, "board.css"), asset(t, "app.js")
+	contains(t, "board.css", css,
+		"--pane:clamp(360px,var(--chat,clamp(400px,38vw,720px)),calc(100% - 440px))",
+		".split{display:none}",
+		".split{position:absolute;top:0;bottom:0;left:-1px;z-index:5;display:block;width:10px;cursor:col-resize;touch-action:none}",
+		"body[data-drag]{cursor:col-resize;user-select:none}",
+		"@media (min-width:900px) and (pointer:coarse){.split{left:-12px;width:24px}",
+		".split::before,.split::after{transition:none}")
+	if strings.Index(css, ".split{display:none}") > strings.Index(css, "@media (min-width:900px){") {
+		t.Fatal("the separator is shown below board width")
+	}
+	contains(t, "app.js", js,
+		`document.querySelector("body[data-page=fleet] .sup")`,
+		`role: "separator"`, `"aria-orientation": "vertical"`, `"aria-controls": "chat"`, "aria-valuetext",
+		`localStorage.getItem("hand.chat")`, `localStorage.setItem("hand.chat", String(px))`, `localStorage.removeItem("hand.chat")`,
+		`root.setProperty("--chat"`, `root.removeProperty("--chat")`,
+		`[360, Math.max(360, board.clientWidth - 440)]`,
+		`ArrowLeft: width() + step, ArrowRight: width() - step, Home: lo, End: hi`,
+		`e.key === "Enter"`, `split.addEventListener("dblclick", reset)`, "setPointerCapture")
+	lacks(t, "app.js", js, "hand.chat${", "style.cssText", `setAttribute("style"`)
+	body := get(t, newFixture(t).handler(), "/")
+	lacks(t, "markup", body, `role="separator"`, `class="split"`, "--chat")
+}
+
+func TestTheCapTrimIsADefaultComponentsOverride(t *testing.T) {
+	css := asset(t, "board.css")
+	trim := "button:where(:not(:has(.icon))),.key.stop{"
+	contains(t, "cap trim", css, trim)
+	if strings.Index(css, trim) < strings.Index(css, "\nbutton{display:inline-flex") {
+		t.Fatal("the cap-trim default comes before the base button rule, so the base rule wins")
+	}
+	lacks(t, "balance", css, "text-wrap:balance")
 }
 
 func TestTheDeskFinishFixes(t *testing.T) {
@@ -421,7 +471,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"[data-send-key]{display:none}\n.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:var(--control)}",
-		".keys{gap:12px}\n.console{flex-wrap:wrap}",
+		".keys{gap:12px}",
 		".timeline .card .copy>:not(.table):not(pre){max-width:72ch}",
 		".from-you .copy{max-width:72ch;",
 		".masthead{position:sticky;top:0;",
@@ -483,7 +533,7 @@ func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
 		"input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}",
 		".attach{position:relative;display:inline-flex;align-items:center;justify-content:center;width:var(--control);height:var(--control);",
 		".key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:var(--control);",
-		"button:not(:has(.icon)){display:inline-block;height:auto;min-height:var(--control);")
+		"button:where(:not(:has(.icon))),.key.stop{display:inline-block;height:auto;min-height:var(--control);")
 	contains(t, "badges", css,
 		".badge{display:inline-block;height:var(--size,var(--badge));min-width:var(--size,var(--badge));",
 		".badge.pill{--size:calc(var(--badge) + 4px);",
@@ -496,4 +546,11 @@ func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
 			t.Errorf("board.css still styles %q apart from .badge", gone)
 		}
 	}
+}
+
+func TestSelectingATabKeepsALinkedMessageInViewAndOpensWorkAtTheTop(t *testing.T) {
+	contains(t, "app.js", asset(t, "app.js"),
+		"const nested = linked && !tabs.some((t) => t.dataset.tab === linked.id);",
+		"if (timeline && current === \"chat\" && !(nested && timeline.contains(linked))) pin(timeline);",
+		`if (!nested) document.querySelector(".work")?.scrollTo(0, 0);`)
 }
