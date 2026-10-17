@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -125,6 +126,97 @@ func TestArchiveFiltersAndSaysWhenNothingMatches(t *testing.T) {
 	contains(t, "form", get(t, h, "/tasks?status=abandoned&since=2026-10-01&project=docs"), `<option value="abandoned" selected>`, `<option value="docs" selected>`, `name="since" value="2026-10-01"`, `method="get" action="/tasks"`)
 }
 
+func TestTasksPageSearchesEveryStatus(t *testing.T) {
+	a := newArchive(t)
+	ctx := context.Background()
+	other, _ := filepath.Abs("/other")
+	if _, err := a.st.AddProject(ctx, "docs", other); err != nil {
+		t.Fatal(err)
+	}
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	a.finish(t, "hand", "Fix login", state.StatusDone, day(2))
+	a.finish(t, "docs", "Fix guide", state.StatusAbandoned, day(3))
+	a.now = day(4)
+	active, err := a.st.AddTask(ctx, "hand", "Fix search", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.Transition(ctx, active.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddTask(ctx, "hand", "Fix inbox", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddTask(ctx, "hand", "Write docs", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := a.handler()
+	for _, tc := range []struct{ query, want string }{
+		{"", "Fix guide|Fix login"},
+		{"?q=fix", "Fix inbox|Fix search|Fix guide|Fix login"},
+		{"?q=fix&status=all", "Fix inbox|Fix search|Fix guide|Fix login"},
+		{"?q=fix&status=finished", "Fix guide|Fix login"},
+		{"?q=fix&status=done", "Fix login"},
+		{"?q=fix&status=active", "Fix search"},
+		{"?q=fix&status=inbox", "Fix inbox"},
+		{"?q=fix&project=docs", "Fix guide"},
+		{"?q=fix&since=2026-10-04", "Fix inbox|Fix search"},
+		{"?q=fix&until=2026-10-03", "Fix guide|Fix login"},
+		{"?q=t4", "Fix inbox"},
+		{"?status=all", "Write docs|Fix inbox|Fix search|Fix guide|Fix login"},
+		{"?q=fix&status=junk", "Fix guide|Fix login"},
+	} {
+		if got := strings.Join(titles(get(t, h, "/tasks"+tc.query)), "|"); got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+	body := get(t, h, "/tasks?q=fix")
+	contains(t, "grouped", body, `<h3 class="group">Sun 4 Oct UTC <span class="badge">2</span></h3>`, `<h3 class="group">Sat 3 Oct UTC <span class="badge">1</span></h3>`, `>4 tasks</p>`, `<option value="" selected>Default</option>`, `<h2 class="thread-title">Tasks</h2>`)
+	contains(t, "bare", get(t, h, "/tasks"), `<option value="" selected>Default</option>`)
+	contains(t, "explicit", get(t, h, "/tasks?status=finished"), `<option value="finished" selected>`)
+	contains(t, "scopes", body, `<option value="active">Active</option>`, `<option value="inbox">Inbox</option>`)
+}
+
+func TestArchiveSearchFromTheDefaultFormSearchesEveryStatus(t *testing.T) {
+	a := newArchive(t)
+	a.finish(t, "hand", "Fix login", state.StatusDone, time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC))
+	ctx := context.Background()
+	active, err := a.st.AddTask(ctx, "hand", "Fix search", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.Transition(ctx, active.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddTask(ctx, "hand", "Fix inbox", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := a.handler()
+	form := regexp.MustCompile(`(?s)<form class="filters".*?</form>`).FindString(get(t, h, "/tasks"))
+	sent := url.Values{}
+	for _, m := range regexp.MustCompile(`<input[^>]*name="(\w+)"[^>]*value="([^"]*)"`).FindAllStringSubmatch(form, -1) {
+		sent.Set(m[1], m[2])
+	}
+	for _, m := range regexp.MustCompile(`(?s)<select name="(\w+)">(.*?)</select>`).FindAllStringSubmatch(form, -1) {
+		opts := regexp.MustCompile(`<option value="([^"]*)"( selected)?`).FindAllStringSubmatch(m[2], -1)
+		pick := opts[0][1]
+		for _, o := range opts {
+			if o[2] != "" {
+				pick = o[1]
+			}
+		}
+		sent.Set(m[1], pick)
+	}
+	sent.Set("q", "fix")
+	if got := strings.Join(titles(get(t, h, "/tasks?"+sent.Encode())), "|"); got != "Fix inbox|Fix search|Fix login" {
+		t.Fatalf("default form with %v = %q", sent, got)
+	}
+	sent.Set("status", "finished")
+	if got := strings.Join(titles(get(t, h, "/tasks?"+sent.Encode())), "|"); got != "Fix login" {
+		t.Fatalf("explicit finished = %q", got)
+	}
+}
+
 func TestArchiveOffersProjectsOnlyWhenThereAreSeveral(t *testing.T) {
 	a := newArchive(t)
 	if body := get(t, a.handler(), "/tasks"); strings.Contains(body, `name="project"`) {
@@ -169,7 +261,7 @@ func TestArchivePagesKeepTheQuery(t *testing.T) {
 func TestArchiveNeedsNoScript(t *testing.T) {
 	a := newArchive(t)
 	a.finish(t, "hand", "Fix login", state.StatusDone, time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC))
-	rec := request(a.handler(), "GET", "/tasks", nil, true)
+	rec := request(a.handler(), "GET", "/tasks?q=fix&status=all", nil, true)
 	body := rec.Body.String()
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe") {
 		t.Fatalf("csp = %q", csp)

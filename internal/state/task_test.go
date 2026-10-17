@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -221,6 +222,11 @@ func TestSearchTasks(t *testing.T) {
 		{"both dates", TaskQuery{Since: "2026-10-02", Until: "2026-10-03", Statuses: done}, "t3 t2", 2},
 		{"empty", TaskQuery{Q: "nothing here", Statuses: done}, "", 0},
 		{"unfinished fall back to the update", TaskQuery{Statuses: []string{StatusInbox}}, TaskRef(open.ID), 1},
+		{"every status", TaskQuery{Q: "fix"}, "t5 t4 t1", 3},
+		{"every status, ref", TaskQuery{Q: "t5"}, "t5", 1},
+		{"every status, project", TaskQuery{Project: "docs"}, "t3", 1},
+		{"every status, since", TaskQuery{Q: "fix", Since: "2026-10-03"}, "t5 t4", 2},
+		{"every status, one status", TaskQuery{Q: "fix", Statuses: []string{StatusInbox}}, "t5", 1},
 		{"page", TaskQuery{Statuses: done, Limit: 2, Offset: 2}, "t2 t1", 4},
 		{"past the end", TaskQuery{Statuses: done, Limit: 2, Offset: 8}, "", 4},
 	} {
@@ -235,6 +241,27 @@ func TestSearchTasks(t *testing.T) {
 	for _, q := range []TaskQuery{{Limit: 0}, {Limit: 1, Statuses: []string{"later"}}, {Limit: 1, Since: "yesterday"}, {Limit: 1, Until: "2026-13-01"}} {
 		if _, _, err := s.SearchTasks(ctx, q); !errors.Is(err, ErrInvalid) {
 			t.Errorf("SearchTasks(%+v) err = %v, want ErrInvalid", q, err)
+		}
+	}
+}
+
+func TestStatusWords(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []string
+		bad  bool
+	}{
+		{"inbox,active", []string{StatusInbox, StatusActive}, false},
+		{"finished", []string{StatusDone, StatusAbandoned}, false},
+		{" finished , inbox", []string{StatusDone, StatusAbandoned, StatusInbox}, false},
+		{"all", nil, false},
+		{" all ", nil, false},
+		{"all,done", nil, true},
+		{"done,all", nil, true},
+	} {
+		got, err := StatusWords(tc.in)
+		if (err != nil) != tc.bad || (err != nil && !errors.Is(err, ErrInvalid)) || !slices.Equal(got, tc.want) {
+			t.Errorf("StatusWords(%q) = %v, %v", tc.in, got, err)
 		}
 	}
 }

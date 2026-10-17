@@ -104,3 +104,49 @@ func TestTaskListSearchesFinishedTasks(t *testing.T) {
 		t.Fatalf("bad --since code = %d, want 2", code)
 	}
 }
+
+func TestTaskListQuerySearchesEveryStatus(t *testing.T) {
+	h := initWithProject(t)
+	for _, title := range []string{"Fix login", "Fix inbox", "Fix search", "Write docs"} {
+		h.ok("task", "add", "hand", title)
+	}
+	h.ok("task", "start", "t1")
+	h.ok("task", "start", "t3")
+	h.ok("task", "done", "t3")
+	h.ok("task", "abandon", "t4")
+	out := h.ok("task", "list", "--q", "fix")
+	for _, want := range []string{"tasks[3]{id,project,status,title,finished}:", "t3,hand,done,Fix search,20", "t2,hand,inbox,Fix inbox,", "t1,hand,active,Fix login,"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("--q fix = %q, missing %q", out, want)
+		}
+	}
+	if out := h.ok("task", "list", "--q", "fix", "--status", "inbox,active"); !strings.Contains(out, "tasks[2]") || strings.Contains(out, "t3,") {
+		t.Fatalf("--q with --status = %q", out)
+	}
+	if out := h.ok("task", "list", "--q", "fix", "--since", "2999-01-01"); !strings.Contains(out, "tasks[0]") {
+		t.Fatalf("--q with --since = %q", out)
+	}
+	if out := h.ok("task", "list", "--status", "all"); !strings.Contains(out, "tasks[4]") {
+		t.Fatalf("--status all = %q", out)
+	}
+}
+
+func TestTaskListStatusWords(t *testing.T) {
+	h := initWithProject(t)
+	for _, title := range []string{"Fix login", "Fix inbox", "Fix search"} {
+		h.ok("task", "add", "hand", title)
+	}
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "t1")
+	h.ok("task", "abandon", "t3")
+	if out := h.ok("task", "list", "--status", "finished"); !strings.Contains(out, "tasks[2]") || strings.Contains(out, "t2,") {
+		t.Fatalf("--status finished = %q", out)
+	}
+	if out := h.ok("task", "list", "--status", "finished,inbox"); !strings.Contains(out, "tasks[3]") {
+		t.Fatalf("--status finished,inbox = %q", out)
+	}
+	_, errOut, code := h.run("task", "list", "--status", "all,done")
+	if code != 2 || !strings.Contains(errOut, "all stands alone") {
+		t.Fatalf("--status all,done code=%d stderr=%q", code, errOut)
+	}
+}
