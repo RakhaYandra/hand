@@ -75,7 +75,7 @@ const (
 
 func cookieFor(base string) string { return cookieName + strings.ReplaceAll(base, "/", "_") }
 
-var eventKind = regexp.MustCompile(`\b(attempt|decision|report|supervisor|task)\.([a-z]+)\b`)
+var eventKind = regexp.MustCompile(`\b(attempt|decision|report|supervisor|task|timer)\.([a-z]+)\b`)
 
 var refColon = regexp.MustCompile(`\b([adprst][0-9]+):\s*(;|$)`)
 

@@ -47,6 +47,15 @@ func TestHandLinesAreOneLine(t *testing.T) {
 	lacks(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), "wake:")
 }
 
+func TestATimerWakeReadsInWords(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\ntimer.fired w1, 10m late: check PR 909`)})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "hand line", tl, `timer fired w1, 10m late: check PR 909`)
+	lacks(t, "hand line", tl, "wake:")
+}
+
 func TestTheWorkingLineNamesTheSupervisor(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")

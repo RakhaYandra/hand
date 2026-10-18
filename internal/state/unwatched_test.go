@@ -29,7 +29,7 @@ func TestUnwatchedNamesActiveTasksThatNothingWatches(t *testing.T) {
 	ctx := context.Background()
 	want := func(tasks []int64, idle time.Duration, stalls int) Unwatched {
 		t.Helper()
-		u, err := s.Unwatched(ctx)
+		u, err := s.Unwatched(ctx, true)
 		if err != nil || !slices.Equal(u.Tasks, tasks) || u.Idle != idle || u.Stalls != stalls {
 			t.Fatalf("unwatched = %+v, %v; want tasks %v, idle %v, stalls %d", u, err, tasks, idle, stalls)
 		}
@@ -107,6 +107,145 @@ func TestIdleForReadsInHoursAndMinutes(t *testing.T) {
 	} {
 		if got := (Unwatched{Idle: d}).IdleFor(); got != want {
 			t.Fatalf("IdleFor(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestAnArmedTimerWatchesTheFleet(t *testing.T) {
+	s, advance := movingStore(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	want := func(tasks []int64, idle time.Duration) {
+		t.Helper()
+		u, err := s.Unwatched(ctx, true)
+		if err != nil || !slices.Equal(u.Tasks, tasks) || u.Idle != idle {
+			t.Fatalf("unwatched = %+v, %v; want tasks %v, idle %v", u, err, tasks, idle)
+		}
+	}
+	advance(10 * time.Minute)
+	want([]int64{task.ID}, 10*time.Minute)
+	if _, err := s.AddTimer(ctx, TimerSpec{After: 30 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	want(nil, 0)
+	advance(30 * time.Minute)
+	if _, err := s.FireTimers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	advance(5 * time.Minute)
+	want([]int64{task.ID}, 5*time.Minute)
+	w, err := s.AddTimer(ctx, TimerSpec{Every: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want(nil, 0)
+	if _, err := s.CancelTimer(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	want([]int64{task.ID}, 0)
+}
+
+func TestATimerWatchesOnlyWhileDueWithinSixHours(t *testing.T) {
+	s, advance := movingStore(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	watched := func() bool {
+		t.Helper()
+		u, err := s.Unwatched(ctx, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(u.Tasks) == 0
+	}
+	near, err := s.AddTimer(ctx, TimerSpec{After: 5*time.Hour + 59*time.Minute})
+	if err != nil || !watched() {
+		t.Fatalf("a timer due in 5h59m: %v, watched %v", err, watched())
+	}
+	if _, err := s.CancelTimer(ctx, near.ID); err != nil {
+		t.Fatal(err)
+	}
+	far, err := s.AddTimer(ctx, TimerSpec{After: 6*time.Hour + time.Minute})
+	if err != nil || watched() {
+		t.Fatalf("a timer due in 6h01m: %v, watched %v", err, watched())
+	}
+	u, err := s.Unwatched(ctx, true)
+	if err != nil || !slices.Equal(u.Tasks, []int64{task.ID}) || u.Far.ID != far.ID || u.FarIn != 6*time.Hour+time.Minute {
+		t.Fatalf("unwatched = %+v, %v", u, err)
+	}
+	advance(2 * time.Minute)
+	if !watched() {
+		t.Fatal("a timer that came within 6h did not start watching")
+	}
+}
+
+func TestARepeatingTimerWatchesWhileItsNextDueIsWithinSixHours(t *testing.T) {
+	s, advance := movingStore(t)
+	ctx := context.Background()
+	activeTask(t, s)
+	if _, err := s.AddTimer(ctx, TimerSpec{Every: 7 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 1 {
+		t.Fatalf("a timer repeating every 7h: %+v, %v", u, err)
+	}
+	advance(7 * time.Hour)
+	if _, err := s.FireTimers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 1 {
+		t.Fatalf("after its fire: %+v, %v", u, err)
+	}
+	if _, err := s.AddTimer(ctx, TimerSpec{Every: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 0 {
+		t.Fatalf("a timer repeating every hour: %+v, %v", u, err)
+	}
+}
+
+func TestAheadReadsInDaysAndHours(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		7 * time.Hour:                 "7h",
+		7*time.Hour + 30*time.Minute:  "7h30m",
+		24 * time.Hour:                "1d",
+		31*24*time.Hour + 5*time.Hour: "31d",
+	} {
+		if got := Ahead(d); got != want {
+			t.Fatalf("Ahead(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestATimerWatchesOnlyWhenAManagedSupervisorRuns(t *testing.T) {
+	s, _ := movingStore(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	if _, err := s.AddTimer(ctx, TimerSpec{After: 30 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 0 {
+		t.Fatalf("with a managed supervisor: %+v, %v", u, err)
+	}
+	u, err := s.Unwatched(ctx, false)
+	if err != nil || !slices.Equal(u.Tasks, []int64{task.ID}) || u.Far.ID != 0 {
+		t.Fatalf("without a managed supervisor: %+v, %v", u, err)
+	}
+}
+
+func TestOnlyARunningSupervisorOnTheCurrentServerIsManaged(t *testing.T) {
+	for _, c := range []struct {
+		status, generation string
+		want               bool
+	}{
+		{AttemptRunning, "gen-1", true},
+		{AttemptRunning, "gen-2", false},
+		{AttemptLaunching, "gen-1", false},
+		{AttemptInterrupted, "gen-1", false},
+		{AttemptExited, "gen-1", false},
+	} {
+		sup := Supervisor{Status: c.status, Terminal: Terminal{ServerGeneration: "gen-1"}}
+		if got := sup.Managed(c.generation); got != c.want {
+			t.Fatalf("%s supervisor on gen-1, server %s: managed = %v, want %v", c.status, c.generation, got, c.want)
 		}
 	}
 }
