@@ -45,7 +45,10 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"refs":     markdown.Refs,
 	"inline":   markdown.Inline,
 	"when":     when,
-	"chips":    chips,
+	"options":  options,
+	"prose":    prose,
+	"chosen":   chosen,
+	"note":     note,
 	"tabonce":  tabOnce,
 	"away":     away,
 	"plain":    plain,
@@ -59,6 +62,9 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"tint":  tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
+	},
+	"pick": func(root map[string]any, d state.Decision, needs bool) map[string]any {
+		return map[string]any{"R": root, "D": d, "Needs": needs}
 	},
 }).ParseFS(files, "templates/*.html"))
 
@@ -252,21 +258,84 @@ func (p *pageErrors) Flush() {
 
 func (p *pageErrors) Unwrap() http.ResponseWriter { return p.ResponseWriter }
 
-var option = regexp.MustCompile(`^\s*(?:\d+|[A-Z])[.)]\s+(.+)$`)
+var (
+	optionLine  = regexp.MustCompile(`^\s*(\d+|[A-Z])[.)]\s+(.+)$`)
+	recommended = regexp.MustCompile(`(?i)\s*\(recommended\)`)
+	consequence = regexp.MustCompile(`\s+[—–-]\s+`)
+	other       = regexp.MustCompile(`(?i)^other\b`)
+)
 
-func chips(body string) []string {
-	var out []string
+type option struct {
+	Key, Label, Note, Value  string
+	Recommended, Other, Long bool
+}
+
+func parseOption(line string) (option, bool) {
+	m := optionLine.FindStringSubmatch(line)
+	if m == nil {
+		return option{}, false
+	}
+	text := strings.TrimSpace(m[2])
+	o := option{Key: m[1], Recommended: recommended.MatchString(text)}
+	text = strings.TrimSpace(recommended.ReplaceAllString(text, ""))
+	o.Label = text
+	if parts := consequence.Split(text, 2); len(parts) == 2 {
+		o.Label, o.Note = parts[0], parts[1]
+	}
+	o.Other, o.Long = other.MatchString(o.Label), utf8.RuneCountInString(o.Label) > 90
+	o.Value = o.Key + ". " + o.Label
+	return o, o.Label != ""
+}
+
+func parseBody(body string) ([]option, string) {
+	var opts []option
+	var keep []string
+	seen := map[string]bool{}
 	fenced := false
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			fenced = !fenced
+		} else if o, ok := parseOption(line); ok && !fenced && !seen[o.Key] {
+			seen[o.Key] = true
+			opts = append(opts, o)
 			continue
 		}
-		if m := option.FindStringSubmatch(line); m != nil && !fenced {
-			out = append(out, strings.TrimSpace(m[1]))
+		keep = append(keep, line)
+	}
+	if len(opts) == 0 {
+		return nil, body
+	}
+	return opts, strings.TrimSpace(strings.Join(keep, "\n"))
+}
+
+func options(body string) []option {
+	opts, _ := parseBody(body)
+	return opts
+}
+
+func prose(body string) string {
+	_, rest := parseBody(body)
+	return rest
+}
+
+func chosen(opts []option, answer string) string {
+	first, _, _ := strings.Cut(answer, "\n")
+	if m := optionLine.FindStringSubmatch(first); m != nil {
+		for _, o := range opts {
+			if o.Key == m[1] {
+				return o.Key
+			}
 		}
 	}
-	return out
+	return ""
+}
+
+func note(opts []option, answer string) string {
+	if chosen(opts, answer) == "" {
+		return strings.TrimSpace(answer)
+	}
+	_, rest, _ := strings.Cut(answer, "\n")
+	return strings.TrimSpace(rest)
 }
 
 func (b *Board) refTitle(ctx context.Context) func(string) string {
@@ -627,12 +696,16 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	id, err := pathID(r, "d")
 	if err != nil {
 		b.failErr(w, err)
 		return
 	}
+	b.decisionPage(w, r, id, http.StatusOK, "")
+}
+
+func (b *Board) decisionPage(w http.ResponseWriter, r *http.Request, id int64, status int, notice string) {
+	ctx := r.Context()
 	d, err := b.st.Decision(ctx, id)
 	if err != nil {
 		b.failErr(w, err)
@@ -643,7 +716,17 @@ func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx)})
+	b.render(w, status, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx), "Notice": notice})
+}
+
+func (b *Board) rejected(w http.ResponseWriter, r *http.Request, id int64, status int, msg, notice string) {
+	w.Header().Set("X-Hand-Error", url.PathEscape(strings.Join(strings.Fields(msg), " ")))
+	b.decisionPage(w, r, id, status, notice)
+}
+
+func (b *Board) asksForANote(ctx context.Context, id int64, choice string) bool {
+	d, err := b.st.Decision(ctx, id)
+	return err == nil && slices.ContainsFunc(options(d.Body()), func(o option) bool { return o.Other && o.Value == choice })
 }
 
 func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
@@ -652,9 +735,27 @@ func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	if _, err := b.st.Answer(r.Context(), id, r.PostFormValue("answer"), "operator (board)"); err != nil {
-		if d, derr := b.st.Decision(r.Context(), id); derr == nil && errors.Is(err, state.ErrConflict) && d.Answer != "" {
-			b.fail(w, http.StatusConflict, state.DecisionRef(id)+" is already answered: "+d.Answer)
+	note := strings.TrimSpace(r.PostFormValue("answer"))
+	choice := strings.TrimSpace(r.PostFormValue("choice"))
+	answer := strings.TrimSpace(choice + "\n\n" + note)
+	if answer == "" {
+		const msg = "pick an option or write an answer"
+		b.rejected(w, r, id, http.StatusBadRequest, msg, sentence(msg))
+		return
+	}
+	if note == "" && b.asksForANote(r.Context(), id, choice) {
+		const msg = "write your answer: that option asks for one"
+		b.rejected(w, r, id, http.StatusBadRequest, msg, sentence(msg))
+		return
+	}
+	if _, err := b.st.Answer(r.Context(), id, answer, "operator (board)"); err != nil {
+		if d, derr := b.st.Decision(r.Context(), id); derr == nil && errors.Is(err, state.ErrConflict) && d.Status != state.DecisionOpen {
+			msg := state.DecisionRef(id) + " is already " + d.Status
+			notice := msg + "."
+			if d.Answer != "" {
+				msg += ": " + d.Answer
+			}
+			b.rejected(w, r, id, http.StatusConflict, msg, notice)
 			return
 		}
 		b.failErr(w, err)
