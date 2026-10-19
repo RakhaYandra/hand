@@ -139,8 +139,19 @@ A fleet home holds:
 - the `secondhand` skill under `.claude/`, `.agents/`, `.grok/` and `.pi/`;
 - `memory/`: the operator memory;
 - `routing.json`: the routing profiles;
+- `inbox/`: the files attached on the board, and its trash (see Inbox folder and trash);
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
+
+### Inbox folder and trash
+
+`inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>`, with or without an extension (see Supervisor input). Hand deletes nothing there except through a prune:
+
+- `hand inbox size` counts those files, sums their size and gives the ages of the oldest and the newest, by modification time, and the same count and size for the trash.
+- `hand inbox prune --older-than Nd` (at least `1d`) moves each such file older than N days from `inbox/` into the trash, `inbox/.trash/` (mode 0700), by a rename on the same disk, and stamps it with the time of the move. It then deletes each such file in the trash older than 7 days by that stamp. `--dry-run` lists both and changes nothing.
+- A prune touches only regular files with those names, directly inside `inbox/` or, for the expiry, `inbox/.trash/`. It never touches a symlink, a folder, an `.upload-*` file the board is still writing, or a file with another name, and it refuses an `inbox/` or `inbox/.trash` that is a symlink rather than a real folder. A file it cannot move or delete is reported, and the others still go. A prune that is not a dry run holds the fleet's `locks/inbox.lock`, so a second one at the same time exits 3.
+- A prune that moves files records the event `inbox.pruned` with their count and size: `3 files, 12 MiB`. Deleting expired trash records no event, since each file's move was recorded.
+- `"inbox": {"keep": "30d"}` in `routing.json` makes the watcher run that prune once a UTC day (see Watcher). `"off"`, the default, prunes nothing.
 
 ### Shared folder
 
@@ -264,6 +275,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
 - wakes the managed supervisor with `supervisor.stalled` while it idles with unwatched work (see Unwatched and stalled), and with `timer.fired` when a timer comes due (see Timer: it needs a managed supervisor);
 - snapshots the fleet's `hand.db` once a day (UTC) with `integrity_check` to `$SECONDHAND_HOME/backups/<fleet id>/hand-YYYYMMDD.db`, and keeps the newest 7, retrying a failed snapshot only after the next UTC day starts or the watcher restarts; `hand update` keeps its own `hand.db.<stamp>` files in that folder, and neither removes the other's;
+- prunes the inbox folder once a UTC day when `routing.json` sets `inbox.keep`, as `hand inbox prune --older-than KEEP` does, and writes the day to `inbox/.trash/.pruned` so a restart that day does not prune again; it logs only the files that failed, which wait for the next day's run; while `routing.json` is invalid it says so once and does not prune;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), when a decision is asked while it runs, and once per stall episode, on the first stall wake at or after 60 minutes idle;
 - sends each alert through the `notify` command in `routing.json` (an argv; `HAND_NOTIFY_KIND`, `HAND_NOTIFY_REF`, `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` in its environment), else through `notify-send` (on macOS, `osascript`; on Windows, none), unless `--notify=false`.
@@ -322,7 +334,7 @@ The watcher fires a due timer while the managed supervisor runs, on its start an
 
 `iN`. A message queued for the supervisor, from the board's message box or `hand supervisor send --text TEXT`. It is at most 16 KiB of UTF-8 with no control characters other than newline and tab, and it may not start with `[hand v1`, which Hand keeps for its own messages. Inputs are delivered in order as soon as the supervisor can take them.
 
-An input can carry images. Each one the operator pastes, drops or picks on the board is saved in the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N.ext`, and the message gets a line `[image: PATH]`. The supervisor opens that path with its harness's image reading. Chat shows each such line from this fleet's `inbox/` as a thumbnail.
+An input can carry images. Each one the operator pastes, drops or picks on the board is saved in the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N.ext`, and the message gets a line `[image: PATH]`. The supervisor opens that path with its harness's image reading. Chat shows each such line from this fleet's `inbox/` as a thumbnail. A prune may later move the file to the trash (see Inbox folder and trash).
 
 ### Model switch
 
@@ -338,7 +350,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Orient
 
-`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the unwatched tasks and their idle time when there are any, the armed timers when there are any (one due beyond 6 hours is marked `(beyond the horizon)`, and every one is marked `(no managed supervisor: not fired)` while none runs), the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the unwatched tasks and their idle time when there are any, the armed timers when there are any (one due beyond 6 hours is marked `(beyond the horizon)`, and every one is marked `(no managed supervisor: not fired)` while none runs), `inbox_folder` with the count and size of the inbox folder's files when there are more than 500 or they pass 100 MiB (with a help line pointing to `hand inbox size`), the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
 
 ### Board
 
