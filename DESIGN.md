@@ -319,6 +319,15 @@ components:
     backgroundColor: "{colors.bg}"
     rounded: "{rounded.lg}"
     padding: "4px 4px 8px"
+  chat-bubble:
+    backgroundColor: "{colors.card}"
+    rounded: "{rounded.lg}"
+    padding: "9px 13px 11px"
+  code-copy:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.muted}"
+    rounded: "{rounded.md}"
+    size: "32px"
   button:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.fg}"
@@ -401,7 +410,7 @@ The Board is built for one operator who works beside an editor or on a phone. Na
 - A 56px icon rail and two panes from 900px, three tabs and a sheet below it: the work pane stays the widest thing on the page, and the chat is dragged to a remembered width inside fixed limits.
 - One severity ramp orders Needs into bands, fills the open item's header, and colours the band heads and the Needs counts.
 - Every state is a word plus an icon shape plus a colour, never colour alone.
-- The conversation is not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
+- The conversation is not a stack of cards: the supervisor's replies are bordered `card` bubbles on the left with their head line inside, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
 - A decision is a choice list: numbered options with their consequences, one marked recommended, and a note.
 - Acknowledge in place: a pressed key collapses its item to "Sent 2 · waiting…", and every action leaves a receipt, a Hand line and a link back.
 - Things open in a new tab and places in place; the composer's draft survives either.
@@ -427,12 +436,12 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 ### Neutral
 - **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus, the sheet and the toast.
-- **Card Grey** (`card`): thread card header strips, and code in replies.
+- **Card Grey** (`card`): thread card header strips, the supervisor's chat bubbles, and code in replies outside a bubble (inside one, code and tables sit on `bg`).
 - **Panel Grey** (`panel`): the supervisor pane and the rail at board width.
 - **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
 - **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
 - **Hairline** (`line`): every rule and decorative border (card edges, dividers), the context bar's track, and scrollbar thumbs.
-- **Control Edge** (`line-strong`): the outline of what the operator operates, where the border is the affordance: select, input, textarea, the composer box, default buttons and the paperclip. `#80889a` by day (3.56:1 on `bg`, 3.20:1 on `card`, 3.32:1 on `panel`) and `#6b7482` at night (3.94:1, 3.50:1 and 3.77:1), so it meets the 3:1 of WCAG 1.4.11; `TestColoursMeetContrast` pins both.
+- **Control Edge** (`line-strong`): the outline of what the operator operates, where the border is the affordance: select, input, textarea, the composer box, default buttons, the paperclip and the code copy button. It is also the edge of the supervisor's chat bubble, which sits on a fill only 1.04:1 (night 1.08:1) from the pane: `line` (1.17:1, night 1.25:1) cannot carry a bubble, `line-strong` does. `#80889a` by day (3.56:1 on `bg`, 3.20:1 on `card`, 3.32:1 on `panel`) and `#6b7482` at night (3.94:1, 3.50:1 and 3.77:1), so it meets the 3:1 of WCAG 1.4.11; `TestColoursMeetContrast` pins both.
 - **Hover Wash** (`hover`): the hover fill of buttons, menu rows and the model menu's summary.
 - **Terminal** (`screen`, `screen-fg`): a blocked screen's excerpt, dark in both themes.
 - **Shadow** (`shadow`): the colour of the one lift shadow, under open menus and the toast.
@@ -461,7 +470,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Display** (600, 22px, 30px, -0.01em): thread titles on the task and decision pages, balanced and clamped to two lines.
 - **Headline** (600, 18px, 24px, -0.01em): the Needs and Tasks heads and the fleet list's head.
 - **Title** (600, 15px, 22px): the headline of an open Needs item, the fleet name in the masthead and `###` headings in replies. A collapsed row sets it at 400 in Body type on one line with an ellipsis.
-- **Copy** (400, 15px, 24px): the body of chat messages and thread cards; a chat message is held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
+- **Copy** (400, 15px, 24px): the body of chat messages and thread cards; a chat message is held to a 72ch measure and thread cards fill their column; a bubble holds its tables and code blocks, which scroll inside it.
 - **Body** (400, 14px, 20px): the page default, task rows, crumbs and the composer's text.
 - **Heading small** (600, 14px, 20px): `h3` heads on thread pages and `####` headings in replies; report titles in a report header use 14px at 600.
 - **Nav** (600, 14px, 20px): the tabs, the model menu's summary and the model name in the pane head.
@@ -519,7 +528,7 @@ The Board is flat. Depth comes from tone and hairlines: cards and header strips 
 ## Shapes
 
 - **Corners:**
-  - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, operator bubbles (the corner at the bottom right is 4px), thread cards, the composer, menus, the toast and the choice list.
+  - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, supervisor bubbles, operator bubbles (the corner at the bottom right is 4px), thread cards, the composer, menus, the toast and the choice list.
   - 6px (`rounded.md`) on controls and boxes: buttons, keys, inputs, rail and sheet items, the terminal excerpt, code blocks and tables in replies, thumbnails and the skip link.
   - 4px (`rounded.sm`) on the focus ring, `kbd` keycaps, inline code and the overflow menu's rows.
   - Pills (999px) on the badge, the context bar and the scrollbar thumbs.
@@ -537,6 +546,7 @@ Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
 - **Size and colour:** 16px, except the mark at 22px and the pill's icon at 12px. They take their colour from the surrounding state.
 - **The state family:** failure is a circle with an X, passing a circle with a tick, waiting a circle with three dots, running an open arc around a solid dot, and idle a dashed circle.
 - **The rail's six:** Board is a panel with a divider, Tasks a checklist, Conversation a speech bubble, All fleets four squares, the label button a panel with a narrow strip at its left, and the menu button three lines.
+- **Drawn by the script:** the code copy button's three icons (two sheets, a tick, a cross) are built by `app.js` in the same family, because the button itself is added there.
 - **The rest:** the mark is a dial with a needle. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square and the overflow icon is three solid dots. Attach is a paperclip and Search a magnifier. Notify in the overflow menu has no icon.
 
 ## Components
@@ -637,11 +647,12 @@ Under a "Tasks" head with a search field, grouped by status (Active and Inbox, t
 - A "Browse finished tasks (N)" link, 12px, sits under the list and opens the Tasks page on its finished scope. With `?all=1` the link reads "Hide finished tasks" and every task lists.
 
 ### Chat messages
-A message has a head line and no box. The head is one Meta line, 4px above the text: the author in ink at 600, then the time and, for the supervisor, the model when it changed; on an operator message the delivery state sits at the right edge.
-- **Supervisor message:** on the pane, full width of the 760px column, with no border and no fill. The text is the reply's markdown in Copy type, each paragraph, list and quote held to 72ch while tables and code blocks may run to the column's edge. A ref inside the text is plain mono, underlined with a dotted line when it links, and never boxed, so a sentence keeps its rhythm and line height.
+A message has a head line. The head is one Meta line, 4px above the text, inside the bubble where there is one: the author in ink at 600, then the time and, for the supervisor, the model when it changed; on an operator message the delivery state sits at the right edge.
+- **Supervisor message:** a bubble aligned left on `card` with a 1px `line-strong` border and 10px corners, padded 9px by 13px by 11px, at most 72ch plus its padding and never wider than the column, so it hugs a short reply and fills the pane for a long one. The head line (author muted, time) is the bubble's first line, one line, with no strip of its own. The text is the reply's markdown in Copy type, each paragraph, list and quote held to 72ch; tables and code blocks scroll inside the bubble. Inside it, inline code, code blocks and tables sit on `bg`, and the quote's stripe and the rule take `line-strong`. With forced colours the border follows the system. A ref inside the text is plain mono, underlined with a dotted line when it links, and never boxed, so a sentence keeps its rhythm and line height.
 - **Operator message:** a bubble on `accent-bg` aligned right, at most 88% of the column and 560px wide, padded 10px by 14px by 12px, with 10px corners and a 4px bottom right corner. "you" is in accent. The delivery state reads "queued", "delivered 07:18" or "typed anyway 08:17"; while the supervisor reads as blocked, a queued message offers "Type anyway". The text keeps its line breaks and is held to 72ch. Each `[image: PATH]` line that points into this fleet's `inbox/` shows as a thumbnail under the text instead, at most 240 by 180 px with the hairline border and the 6px radius; it opens the full image. With forced colours the bubble takes a `CanvasText` border.
-- **Alignment:** the bubble's right edge is the composer's right edge, and the supervisor's text starts at its left edge.
+- **Alignment:** the operator bubble's right edge is the composer's right edge, and the supervisor bubble's left edge is the composer's left edge and the Hand lines'.
 - **Scroll shadows:** a table or code block that scrolls sideways carries a 14px shadow on its right edge that fades when the content ends, drawn in the box's own background (`--shadow`), with no script.
+- **Code blocks:** each carries a copy button (see Code copy button).
 - **Feed:** an entry new to the timeline rises 1.4em and fades in over .28s.
 
 ### Hand lines
@@ -705,8 +716,17 @@ A slot that is missing leaves no gap. `.wrap` lets the waiting and decision rows
 ### Inputs
 Inputs and selects are `--control` high on the ground with a control-edge border, 6px corners and 0 by 10px padding; text boxes pad 8px by 10px. Focus draws a 2px accent outline inset by 1px and hides the border. Placeholders are muted.
 
+### Code copy button
+Every code block in rendered markdown (replies, plans, reports, decision text, task page cards) gets a copy button from `app.js`; the renderer's markup is unchanged and without script the block reads as before.
+- **Structure:** `app.js` wraps each `.md pre` in `div.code` (position relative) and appends `button.copy`, type button, holding three 16px icons of which one shows at a time: copy, a tick, a cross. It runs on load and after every region replacement, so it is idempotent and covers messages that arrive later. A focused button keeps focus across a refresh.
+- **Place and size:** the button is `--control` square (32px; 44px on coarse pointers) in the block's top right corner, 4px in, on the block's own surface with a `line-strong` edge and 6px corners. The wrapper holds it, so it stays put while a long line scrolls under it; the block keeps a right padding of `--control` plus 12px so the end of a line clears it, and a minimum height that holds the button. A scrolled line passes under the button.
+- **When it shows:** on hover or focus within the block at desk, always on coarse pointers, and whenever the button is focused or has a state. It takes the 2px accent focus ring.
+- **Copy:** the `pre`'s text exactly, through `navigator.clipboard.writeText`, or a hidden `textarea` and `execCommand("copy")` where the clipboard API is absent or refuses. For 1.5s the icon is a green tick and the name reads "Copied", or a red cross and "Copy failed"; then it returns to "Copy code". The state is spoken through one visually hidden `role=status` region. It never opens an alert.
+- **Colour:** the icon is `muted` on the block's surface (6.15:1 on `bg`, 5.52:1 on `card`, night 7.23:1 and 6.43:1); the edge is `line-strong` (3.2:1 or better on both surfaces). With forced colours the icon and edge take `ButtonText`.
+- **Motion:** the fade-in is .15s and stops under `prefers-reduced-motion`.
+
 ### Reply markdown
-Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a numbered list keeps the numbers written in the source (a list a block interrupts resumes at its own number), lines indented under an item nest inside it up to six lists deep (deeper lines render as plain paragraph text), and blank lines between items keep one list; a numbered list starts at the number written when it fits 32 bits; `###` in Title and `####` in Heading small; inline code on `card` with 4px corners; code blocks on `card` with 6px corners that scroll rather than wrap, behind a scroll shadow; a hairline rule; quotes with a 1px hairline on the left in muted ink; struck text in muted ink. Tables fit their content inside a bordered 6px box that scrolls sideways behind the same scroll shadow, with a `card` header row in muted 12px at 600, cells at least 10ch wide padded 6px by 10px, tabular numerals, alignment from the source, and a sticky first column divided by a hairline.
+Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a numbered list keeps the numbers written in the source (a list a block interrupts resumes at its own number), lines indented under an item nest inside it up to six lists deep (deeper lines render as plain paragraph text), and blank lines between items keep one list; a numbered list starts at the number written when it fits 32 bits; `###` in Title and `####` in Heading small; inline code on `card` with 4px corners; code blocks on `card` (`bg` inside a bubble) with 6px corners that scroll rather than wrap, behind a scroll shadow, each with a copy button; a hairline rule; quotes with a 1px hairline on the left in muted ink; struck text in muted ink. Tables fit their content inside a bordered 6px box that scrolls sideways behind the same scroll shadow, with a `card` header row in muted 12px at 600, cells at least 10ch wide padded 6px by 10px, tabular numerals, alignment from the source, and a sticky first column divided by a hairline.
 
 ### Thread pages
 - **Head:** crumbs in muted 14px with refs, the title in Display type, a slug line with the status badge, project, plan and time, then one hairline rule.
@@ -726,6 +746,8 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Notifications:** opt-in from the overflow menu. When the open count rises while the page is hidden, one notification names the worst item.
 
 ### Named Rules
+**The Copy Stays With The Code Rule.** A code block is copied from its own button, added by `app.js` and never by the renderer, which also serves the CLI. The button copies the block's text byte for byte, says what happened in words and in the live region, and is reachable by keyboard.
+
 **The Bands Rule.** Needs groups its open items under one head per severity word, most severe first, and the head carries the word and its tone, so a row repeats neither. A collapsed row is one calm line and only the open item is a card.
 
 **The One Choice List Rule.** A decision is answered from one component, the choice list, in a Needs item and on the decision page, and the answered state is the same list at rest. The question never repeats its option lines, and the server joins the pick and the note into one answer.
@@ -742,7 +764,7 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.
 - **Do** keep one primary button per form, and keep Stop behind a second press.
 - **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property and the rail tip's `top` through the CSSOM, which the CSP allows.
-- **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash and the open and close transition.
+- **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash, the open and close transition and the copy button's fade.
 
 ### Don't:
 - **Don't** use fail red for decisions, reports, links or ordinary states.
