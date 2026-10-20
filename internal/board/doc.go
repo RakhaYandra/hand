@@ -92,6 +92,16 @@ func docURL(base, rel string) string {
 }
 
 func DocHref(home, base, p string) string {
+	if slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
+		return ""
+	}
+	if rest, ok := strings.CutPrefix(p, "~/"); ok {
+		user, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		p = filepath.Join(user, rest)
+	}
 	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") {
 		return ""
 	}
@@ -108,6 +118,18 @@ func DocHref(home, base, p string) string {
 		}
 	}
 	return ""
+}
+
+func (b *Board) local() func(string) string {
+	seen := map[string]string{}
+	return func(p string) string {
+		if h, ok := seen[p]; ok {
+			return h
+		}
+		h := DocHref(b.o.Home, b.o.Base, p)
+		seen[p] = h
+		return h
+	}
 }
 
 func (b *Board) linked(ds []Deliverable) []Deliverable {
@@ -196,7 +218,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	case !utf8.Valid(text) || bytes.IndexByte(text, 0) >= 0:
 		data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
 	case ext == ".md" || ext == ".markdown":
-		data["Body"] = markdown.RenderDoc(string(text), b.o.Base, b.refTitle(ctx))
+		data["Body"] = markdown.RenderDoc(string(text), b.o.Base, b.refTitle(ctx), b.local())
 	default:
 		data["Plain"] = string(text)
 	}
