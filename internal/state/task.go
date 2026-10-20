@@ -225,9 +225,12 @@ func (s *Store) CountTasks(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Transition(ctx context.Context, id int64, to string) (Task, error) {
+func (s *Store) Transition(ctx context.Context, id int64, to string, delivered ...string) (Task, error) {
 	if !slices.Contains(statuses, to) {
 		return Task{}, fmt.Errorf("%w: unknown task status %q", ErrInvalid, to)
+	}
+	if len(delivered) > 0 && to != StatusDone {
+		return Task{}, fmt.Errorf("%w: only a task becoming done takes deliverables", ErrInvalid)
 	}
 	var out Task
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -272,6 +275,11 @@ func (s *Store) Transition(ctx context.Context, id int64, to string) (Task, erro
 		out = cur
 		if err := emit(tx, now, "task."+to, id, from+"->"+to); err != nil {
 			return err
+		}
+		for _, ref := range delivered {
+			if err := emit(tx, now, "task.delivered", id, ref); err != nil {
+				return err
+			}
 		}
 		if to == StatusDone || to == StatusAbandoned {
 			if err := withdrawOpen(tx, id, now); err != nil {
