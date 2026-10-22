@@ -29,6 +29,7 @@ const (
 	phoneLife  = 90 * 24 * time.Hour
 	codeChars  = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 	hostCookie = "__Host-"
+	phoneName  = "hand_phone"
 )
 
 type pairCode struct {
@@ -98,7 +99,7 @@ const funnelRefusal = "This board does not answer the public internet. Turn Tail
 func secure(r *http.Request) bool { return r.Header.Get("X-Forwarded-Proto") == "https" }
 
 func (b *Board) phoneCookie(r *http.Request) string {
-	name := "hand_phone" + strings.ReplaceAll(b.o.Base, "/", "_")
+	name := phoneName + strings.ReplaceAll(b.o.Base, "/", "_")
 	if secure(r) {
 		return hostCookie + name
 	}
@@ -125,9 +126,28 @@ func remote(r *http.Request) string {
 }
 
 func (b *Board) session(r *http.Request) (session, sessionFault) {
+	s, fault := b.identify(r)
+	if fault == signedIn && s.Device != nil {
+		b.phones.mu.Lock()
+		b.phones.seen[s.Device.ID] = b.now()
+		b.phones.mu.Unlock()
+	}
+	return s, fault
+}
+
+func (b *Board) PhoneSession(r *http.Request) bool {
+	_, fault := b.phoneIdentify(r)
+	return fault == signedIn
+}
+
+func (b *Board) identify(r *http.Request) (session, sessionFault) {
 	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && b.valid(c.Value) {
 		return session{CSRF: b.token}, signedIn
 	}
+	return b.phoneIdentify(r)
+}
+
+func (b *Board) phoneIdentify(r *http.Request) (session, sessionFault) {
 	c, err := r.Cookie(b.phoneCookie(r))
 	if err != nil {
 		return session{}, noSession
@@ -148,9 +168,6 @@ func (b *Board) session(r *http.Request) (session, sessionFault) {
 	if d.Login != "" && subtle.ConstantTimeCompare([]byte(d.Login), []byte(tailnetLogin(r))) != 1 {
 		return session{}, phoneOther
 	}
-	b.phones.mu.Lock()
-	b.phones.seen[id] = b.now()
-	b.phones.mu.Unlock()
 	return session{Device: &d, CSRF: b.deviceCSRF(secret), hash: hash}, signedIn
 }
 
@@ -401,7 +418,7 @@ var pairFailure = map[pairResult]struct {
 
 func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg, name string) {
 	w.Header().Set("Cache-Control", "no-store")
-	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r)})
+	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r), "Neutral": true})
 }
 
 func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +440,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 	secret := randomText(32)
 	d, err := b.st.AddDevice(r.Context(), name, tailnetLogin(r), b.secretHash(secret))
 	if err != nil {
-		b.failErr(w, err)
+		b.failNeutralErr(w, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Value: strconv.FormatInt(d.ID, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})
