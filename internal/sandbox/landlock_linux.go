@@ -70,7 +70,7 @@ func Apply(p Policy) error {
 		return fmt.Errorf("%w: %s", ErrUnsupported, Probe().Reason)
 	}
 	runtime.LockOSThread()
-	attr := rulesetAttr{fs: handledMask(abi), scoped: unix.LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET}
+	attr := rulesetAttr{fs: handledMask(abi), scoped: unix.LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | unix.LANDLOCK_SCOPE_SIGNAL}
 	fd, _, errno := unix.RawSyscall6(unix.SYS_LANDLOCK_CREATE_RULESET, uintptr(unsafe.Pointer(&attr)), unsafe.Sizeof(attr), 0, 0, 0, 0)
 	if errno != 0 {
 		return fmt.Errorf("%w: landlock_create_ruleset: %v", ErrUnsupported, errno)

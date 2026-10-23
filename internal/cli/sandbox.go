@@ -51,12 +51,9 @@ func cmdSandboxExec(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *access == sandbox.Boxed {
-		if p := sandbox.Probe(); !p.UnixSockets {
-			return fmt.Errorf("%w: boxed is unavailable: %s", state.ErrInvalid, p.Reason)
-		}
-	}
-	common, private := gitDirs(wt)
+	home := r.sandboxHome(wt)
+	projects := func() []string { return sandboxProjects(r, home) }
+	common, private := gitDirs(wt, projects)
 	env := r.env.Environ()
 	if env == nil {
 		env = os.Environ()
@@ -66,9 +63,9 @@ func cmdSandboxExec(r *runner, args []string) error {
 		Worktree:   wt,
 		GitCommon:  common,
 		GitPrivate: private,
-		Remotes:    gitRemotes(wt),
+		Remotes:    gitRemotes(wt, projects),
 		Harness:    spec,
-		Home:       r.sandboxHome(wt),
+		Home:       home,
 		Bin:        bin,
 		Getenv:     r.env.Getenv,
 		Environ:    env,
@@ -78,6 +75,11 @@ func cmdSandboxExec(r *runner, args []string) error {
 	}
 	if *printOnly {
 		return r.print(sandboxDoc(policy))
+	}
+	if *access == sandbox.Boxed {
+		if p := sandbox.Probe(); !p.UnixSockets {
+			return fmt.Errorf("%w: boxed is unavailable: %s", state.ErrInvalid, p.Reason)
+		}
 	}
 	if err := sandbox.Apply(policy); err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
@@ -143,14 +145,79 @@ func (r *runner) sandboxHome(worktree string) string {
 	return home
 }
 
-func gitDirs(worktree string) (common, private string) {
-	common, _ = gitPath(worktree, "--git-common-dir")
-	private, _ = gitPath(worktree, "--git-dir")
-	return common, private
+func sandboxProjects(r *runner, home string) []string {
+	if home == "" {
+		return nil
+	}
+	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
+	if err != nil {
+		return nil
+	}
+	defer st.Close()
+	projects, err := st.Projects(r.ctx())
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(projects))
+	for _, p := range projects {
+		paths = append(paths, p.Repo)
+	}
+	return paths
 }
 
-func gitRemotes(worktree string) []string {
-	cmd := exec.Command("git", "-C", worktree, "config", "--get-regexp", `^remote\..*\.url$`)
+func gitDirs(worktree string, projects func() []string) (common, private string) {
+	common, _ = gitPath(worktree, "--git-common-dir")
+	private, _ = gitPath(worktree, "--git-dir")
+	if common == "" {
+		return "", ""
+	}
+	common = realPath(common)
+	if !trustedGitCommon(worktree, common, projects()) {
+		return "", ""
+	}
+	if private == "" {
+		return common, ""
+	}
+	return common, linkedGitDir(common, private)
+}
+
+func trustedGitCommon(worktree, common string, projects []string) bool {
+	for _, base := range append([]string{worktree}, projects...) {
+		if dir := gitDirAt(base); dir != "" && realPath(dir) == common {
+			return true
+		}
+	}
+	return false
+}
+
+func gitDirAt(base string) string {
+	path := filepath.Join(base, ".git")
+	if fi, err := os.Lstat(path); err == nil && fi.IsDir() {
+		return path
+	}
+	fi, err := os.Lstat(base)
+	if err != nil || !fi.IsDir() {
+		return ""
+	}
+	if head, err := os.Stat(filepath.Join(base, "HEAD")); err != nil || head.IsDir() {
+		return ""
+	}
+	if objects, err := os.Stat(filepath.Join(base, "objects")); err != nil || !objects.IsDir() {
+		return ""
+	}
+	return base
+}
+
+func linkedGitDir(common, private string) string {
+	rel, err := filepath.Rel(filepath.Join(realPath(common), "worktrees"), realPath(private))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
+		return ""
+	}
+	return realPath(private)
+}
+
+func gitRemotes(worktree string, projects func() []string) []string {
+	cmd := exec.Command("git", "-C", worktree, "config", "--local", "--get-regexp", `^remote\..*\.url$`)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -161,14 +228,14 @@ func gitRemotes(worktree string) []string {
 		if !ok {
 			continue
 		}
-		if p, ok := localRemote(strings.TrimSpace(url), worktree); ok {
+		if p, ok := localRemote(strings.TrimSpace(url), worktree, projects); ok {
 			paths = append(paths, p)
 		}
 	}
 	return paths
 }
 
-func localRemote(url, worktree string) (string, bool) {
+func localRemote(url, worktree string, projects func() []string) (string, bool) {
 	switch {
 	case strings.HasPrefix(url, "file://"):
 		url = strings.TrimPrefix(url, "file://")
@@ -188,10 +255,47 @@ func localRemote(url, worktree string) (string, bool) {
 	if !filepath.IsAbs(url) {
 		url = filepath.Join(worktree, url)
 	}
-	if _, err := os.Stat(url); err != nil {
+	real, err := filepath.EvalSymlinks(url)
+	if err != nil {
 		return "", false
 	}
-	return url, true
+	if !isRepository(real) {
+		return "", false
+	}
+	if home, err := os.UserHomeDir(); err == nil && within(real, realPath(home)) && !registered(projects(), real) {
+		return "", false
+	}
+	return real, true
+}
+
+func isRepository(path string) bool {
+	if fi, err := os.Stat(filepath.Join(path, ".git")); err == nil && fi.IsDir() {
+		return true
+	}
+	if fi, err := os.Stat(filepath.Join(path, "HEAD")); err != nil || fi.IsDir() {
+		return false
+	}
+	fi, err := os.Stat(filepath.Join(path, "objects"))
+	return err == nil && fi.IsDir()
+}
+
+func registered(projects []string, path string) bool {
+	for _, p := range projects {
+		if realPath(p) == path {
+			return true
+		}
+	}
+	return false
+}
+
+func realPath(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 func gitPath(worktree, flag string) (string, error) {

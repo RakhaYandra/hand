@@ -19,8 +19,17 @@ func testEnv(home string) func(string) string {
 	}
 }
 
+func realPath(t *testing.T, path string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return real
+}
+
 func TestBoxedGrantsTheWorktreeAndNotTheHomeSecrets(t *testing.T) {
-	home := t.TempDir()
+	home := realPath(t, t.TempDir())
 	wt := filepath.Join(home, "worktrees", "fleet", "t1-a2")
 	if err := os.MkdirAll(wt, 0o700); err != nil {
 		t.Fatal(err)
@@ -80,7 +89,7 @@ func TestBoxedGrantsTheWorktreeAndNotTheHomeSecrets(t *testing.T) {
 }
 
 func TestBoxedGrantsTheGitFolderInParts(t *testing.T) {
-	home := t.TempDir()
+	home := realPath(t, t.TempDir())
 	wt := filepath.Join(home, "wt")
 	if err := os.MkdirAll(wt, 0o700); err != nil {
 		t.Fatal(err)
@@ -159,4 +168,50 @@ func envValue(env []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestBoxedKeepsToolchainBinariesReadOnly(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	data := filepath.Join(home, ".local", "share")
+	dirs := map[string]bool{
+		filepath.Join(home, "go", "pkg"):             true,
+		filepath.Join(home, "go", "bin"):             false,
+		filepath.Join(home, ".cargo", "registry"):    true,
+		filepath.Join(home, ".cargo", "bin"):         false,
+		filepath.Join(home, ".bun", "install"):       true,
+		filepath.Join(home, ".bun", "bin"):           false,
+		filepath.Join(home, ".rustup", "downloads"):  true,
+		filepath.Join(home, ".rustup", "toolchains"): false,
+		filepath.Join(data, "mise", "installs"):      true,
+		filepath.Join(data, "mise", "shims"):         false,
+		filepath.Join(home, ".local", "bin"):         false,
+	}
+	for dir := range dirs {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wt := filepath.Join(home, "wt")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Resolve(Request{
+		Mode:     Boxed,
+		Worktree: wt,
+		Home:     home,
+		Getenv:   testEnv(home),
+		Environ:  []string{"PATH=/usr/bin"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, rule := range p.Rules {
+		got[rule.Path] = rule.Write
+	}
+	for dir, write := range dirs {
+		if got[dir] != write {
+			t.Fatalf("%s write = %v, want %v", dir, got[dir], write)
+		}
+	}
 }

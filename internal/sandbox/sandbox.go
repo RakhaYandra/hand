@@ -62,6 +62,7 @@ var systemDirs = []string{
 	"/nix/store",
 	"/proc",
 	"/sys",
+	"/run/systemd/resolve",
 }
 
 var devicePaths = []string{
@@ -141,15 +142,24 @@ func Resolve(req Request) (Policy, error) {
 	}
 	add(cache, true)
 	add(stateDir, true)
-	add(data+"/mise", true)
-	add(data+"/uv", true)
-	add(data+"/pnpm", true)
-	add(data+"/opencode", true)
+	add(filepath.Join(data, "mise"), false)
+	add(filepath.Join(data, "mise", "installs"), true)
+	add(filepath.Join(data, "mise", "downloads"), true)
+	add(filepath.Join(data, "uv"), false)
+	add(filepath.Join(data, "pnpm"), true)
+	add(filepath.Join(data, "opencode"), true)
 	add(filepath.Join(home, ".npm"), true)
-	add(filepath.Join(home, ".bun"), true)
-	add(filepath.Join(home, ".cargo"), true)
-	add(filepath.Join(home, ".rustup"), true)
-	add(filepath.Join(home, "go"), true)
+	add(filepath.Join(home, ".bun"), false)
+	add(filepath.Join(home, ".bun", "install"), true)
+	add(filepath.Join(home, ".cargo"), false)
+	add(filepath.Join(home, ".cargo", "registry"), true)
+	add(filepath.Join(home, ".cargo", "git"), true)
+	add(filepath.Join(home, ".rustup"), false)
+	add(filepath.Join(home, ".rustup", "downloads"), true)
+	add(filepath.Join(home, ".rustup", "tmp"), true)
+	add(filepath.Join(home, ".rustup", "update-hashes"), true)
+	add(filepath.Join(home, "go"), false)
+	add(filepath.Join(home, "go", "pkg"), true)
 	add(filepath.Join(home, ".local/bin"), false)
 	add(filepath.Join(config, "git"), false)
 	add(filepath.Join(home, ".gitconfig"), false)
