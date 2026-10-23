@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +32,7 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"fake": fakeMain, "lister": listerMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
@@ -63,6 +64,23 @@ func wrapMain(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func listerMain(args []string) int {
+	p := fakebin.Params()
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Println(p["version"])
+		return 0
+	}
+	if p["log"] != "" && len(args) > 0 && slices.Contains([]string{"models", "debug", "-p"}, args[0]) {
+		fakebin.Append(p["log"], strings.Join(args, " "))
+	}
+	d, _ := time.ParseDuration(p["sleep"])
+	time.Sleep(d)
+	fmt.Fprint(os.Stderr, p["stderr"])
+	fmt.Print(p["stdout"])
+	code, _ := strconv.Atoi(p["exit"])
+	return code
 }
 
 func fakeMain(args []string) int {

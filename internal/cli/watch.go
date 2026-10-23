@@ -56,6 +56,9 @@ type watcher struct {
 	rest         rest
 	policyWarned bool
 	inboxWarned  bool
+	modelsBusy   atomic.Bool
+	modelsSaid   map[string]string
+	saying       sync.Mutex
 }
 
 type turn struct {
@@ -122,6 +125,7 @@ func cmdWatch(r *runner, args []string) error {
 		}
 		w.snapshot(ctx)
 		w.pruneInbox(ctx)
+		w.refreshModels(ctx)
 		select {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):
@@ -184,6 +188,7 @@ func (w *watcher) session(ctx context.Context) error {
 	if err := w.timers(sctx, c, caps); err != nil {
 		return err
 	}
+	w.refreshModels(ctx)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
 	for {
@@ -208,6 +213,7 @@ func (w *watcher) session(ctx context.Context) error {
 			if err == nil {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
+				w.refreshModels(ctx)
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
@@ -654,5 +660,7 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 func (w *watcher) say(text string) {
 	var d toon.Doc
 	d.Field("observed", text)
+	w.saying.Lock()
+	defer w.saying.Unlock()
 	_ = w.r.print(&d)
 }
