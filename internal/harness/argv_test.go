@@ -23,7 +23,7 @@ func TestCodexDirSurvivesLaunchingTheExe(t *testing.T) {
 	out := filepath.Join(base, "args.txt")
 	bin := fakebin.Install(t, base, "codex", "echoargs", map[string]string{"out": out})
 	dir := filepath.Join(base, "my fleet")
-	spec := Spec{"codex", "gpt-6-luna", "low"}
+	spec := Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}
 	for name, build := range map[string]func() ([]string, error){
 		"supervisor": func() ([]string, error) { return SupervisorArgv(bin, spec, "", "go", dir, false) },
 		"resume":     func() ([]string, error) { return SupervisorArgv(bin, spec, "abc", "", dir, true) },

@@ -77,7 +77,7 @@ func cmdSandboxExec(r *runner, args []string) error {
 		return r.print(sandboxDoc(policy))
 	}
 	if *access == sandbox.Boxed {
-		if p := sandbox.Probe(); !p.UnixSockets {
+		if p := sandbox.Prober(); !p.UnixSockets {
 			return fmt.Errorf("%w: boxed is unavailable: %s", state.ErrInvalid, p.Reason)
 		}
 	}

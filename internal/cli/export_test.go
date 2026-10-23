@@ -19,4 +19,5 @@ var (
 	PhoneProbe    = &phoneProbe
 	RemoveIfSame  = removeIfSame
 	AcceptTrust   = acceptTrust
+	HandExe       = &handExecutable
 )

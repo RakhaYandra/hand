@@ -227,3 +227,18 @@ func TestTheAttemptPageStylesItsFactsBriefAndPhoneOrder(t *testing.T) {
 	contains(t, "brief", css, ".brief{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card);max-height:24em;overflow:auto;font:12px/18px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}")
 	contains(t, "phone order", css, "@media (max-width:999px){.task-side:has(.facts){order:0}}")
 }
+
+func TestTheAttemptPageMarksABoxedAttempt(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Fix login")
+	ctx := context.Background()
+	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "claude", Model: "sonnet", Effort: "low", Access: "boxed", Argv: []string{"/bin/claude", "x"}}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, board.New(st, token, board.Options{}), "/attempt/a1")
+	contains(t, "boxed attempt page", body, `<span class="badge" data-tone="wait">boxed</span>`)
+	other := briefed(t, st, active(t, st, "Other").ID, "/w", []string{"/bin/claude", "x"})
+	if plain := get(t, board.New(st, token, board.Options{}), "/attempt/"+state.AttemptRef(other.ID)[1:]); strings.Contains(plain, `>boxed</span>`) {
+		t.Fatalf("open attempt page carries a boxed badge:\n%s", plain)
+	}
+}

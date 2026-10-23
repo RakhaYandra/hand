@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/atqamz/hand/internal/sandbox"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -14,6 +15,14 @@ type Spec struct {
 	Harness string `json:"harness"`
 	Model   string `json:"model"`
 	Effort  string `json:"effort"`
+	Access  string `json:"access,omitzero"`
+}
+
+func (s Spec) AccessMode() string {
+	if s.Access == "" {
+		return sandbox.Open
+	}
+	return s.Access
 }
 
 type Env struct {

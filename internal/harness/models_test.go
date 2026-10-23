@@ -318,7 +318,7 @@ func TestCodexListsTheBundledCatalogAndHonoursVisibility(t *testing.T) {
 	if err != nil || len(offered) != 2 {
 		t.Fatalf("offered = %+v, %v", offered, err)
 	}
-	if warn, err := Check(Spec{"codex", "codex-auto-review", "low"}, f.env); err != nil || warn != "" {
+	if warn, err := Check(Spec{Harness: "codex", Model: "codex-auto-review", Effort: "low"}, f.env); err != nil || warn != "" {
 		t.Fatalf("a hidden model is still known: %q, %v", warn, err)
 	}
 	noSecret(t, "codex cache", f.cacheFile("codex"))
@@ -362,7 +362,7 @@ func TestCodexFallbackNeverMarksAModelGone(t *testing.T) {
 	if l.Failed != nil || len(l.Models) != 1 || len(l.Gone) != 0 {
 		t.Fatalf("listing = %+v", l)
 	}
-	if why, hard := Vanished(Spec{"codex", "gpt-5.5", "low"}, f.env, f.clock()); why != "" || hard {
+	if why, hard := Vanished(Spec{Harness: "codex", Model: "gpt-5.5", Effort: "low"}, f.env, f.clock()); why != "" || hard {
 		t.Fatalf("a narrower fallback list made a model vanish: %q %v", why, hard)
 	}
 	f.install("codex", map[string]string{"stdout": codexBundled("")})
@@ -379,10 +379,10 @@ func TestCodexFallbackNeverMarksAModelGone(t *testing.T) {
 	if l := f.refresh("codex"); slices.Contains(l.Gone, "gpt-6-luna") || !slices.Contains(l.Gone, "codex-auto-review") {
 		t.Fatalf("a listed model is still gone, or a missing one was forgotten: %+v", l.Gone)
 	}
-	if why, hard := Vanished(Spec{"codex", "gpt-6-luna", "low"}, f.env, f.clock()); why != "" || hard {
+	if why, hard := Vanished(Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, f.env, f.clock()); why != "" || hard {
 		t.Fatalf("a listed model vanished: %q %v", why, hard)
 	}
-	if warn, err := Check(Spec{"codex", "gpt-6-luna", "low"}, f.env); err != nil || warn != "" {
+	if warn, err := Check(Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, f.env); err != nil || warn != "" {
 		t.Fatalf("a listed model warns: %q, %v", warn, err)
 	}
 }
@@ -782,16 +782,16 @@ func TestModelsThatLeftTheListAreRemembered(t *testing.T) {
 	f := newFixture(t)
 	f.install("codex", map[string]string{"stdout": codexBundled("")})
 	f.refresh("codex")
-	if why, hard := Vanished(Spec{"codex", "gpt-6-luna", "low"}, f.env, f.clock()); why != "" || hard {
+	if why, hard := Vanished(Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, f.env, f.clock()); why != "" || hard {
 		t.Fatalf("a listed model vanished: %q %v", why, hard)
 	}
 	f.install("codex", map[string]string{"stdout": `{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`})
 	f.refresh("codex")
-	spec := Spec{"codex", "gpt-6-luna", "low"}
+	spec := Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}
 	if why, hard := Vanished(spec, f.env, f.clock()); why != "model gpt-6-luna is no longer listed by codex" || !hard {
 		t.Fatalf("vanished = %q %v", why, hard)
 	}
-	if why, _ := Vanished(Spec{"codex", "never-listed", "low"}, f.env, f.clock()); why != "" {
+	if why, _ := Vanished(Spec{Harness: "codex", Model: "never-listed", Effort: "low"}, f.env, f.clock()); why != "" {
 		t.Fatalf("a model that was never listed vanished: %q", why)
 	}
 	f.advance(7 * time.Hour)
@@ -811,10 +811,10 @@ func TestClaudeVanishingIsNeverAuthoritative(t *testing.T) {
 	f.refresh("claude")
 	f.install("claude", map[string]string{"stdout": claudeStdout(t, claudeRow("opus", "Opus", all5...))})
 	f.refresh("claude")
-	if why, hard := Vanished(Spec{"claude", "acme-opus", "low"}, f.env, f.clock()); why != "model acme-opus is no longer listed by claude" || hard {
+	if why, hard := Vanished(Spec{Harness: "claude", Model: "acme-opus", Effort: "low"}, f.env, f.clock()); why != "model acme-opus is no longer listed by claude" || hard {
 		t.Fatalf("vanished = %q %v", why, hard)
 	}
-	if warn, err := Check(Spec{"claude", "acme-opus", "low"}, f.env); err != nil || !strings.Contains(warn, "model acme-opus is no longer listed by claude") {
+	if warn, err := Check(Spec{Harness: "claude", Model: "acme-opus", Effort: "low"}, f.env); err != nil || !strings.Contains(warn, "model acme-opus is no longer listed by claude") {
 		t.Fatalf("warn = %q, %v", warn, err)
 	}
 }
@@ -836,7 +836,7 @@ func TestReadsNeverRunAHarness(t *testing.T) {
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
 		f.install(name, map[string]string{"count": count, "stdout": agyList})
 	}
-	for _, spec := range []Spec{{"claude", "acme", "low"}, {"codex", "gpt-6-luna", "low"}, {"agy", "gemini-3.8-flash-low", ""}, {Harness: "opencode"}} {
+	for _, spec := range []Spec{{Harness: "claude", Model: "acme", Effort: "low"}, {Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, {Harness: "agy", Model: "gemini-3.8-flash-low", Effort: ""}, {Harness: "opencode"}} {
 		if _, err := Check(spec, f.env); err != nil {
 			t.Fatal(err)
 		}

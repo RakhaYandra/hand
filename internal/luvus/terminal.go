@@ -162,6 +162,26 @@ func (c Client) scan(ctx context.Context, pane, terminalID string, tries int) er
 	}
 }
 
+func (c Client) Recognize(ctx context.Context, t Terminal) error {
+	for n := 1; ; n++ {
+		p, err := c.Processes(ctx, t)
+		if err != nil {
+			return err
+		}
+		if p.Scan == "observed" {
+			return nil
+		}
+		if n >= scanTries {
+			return fmt.Errorf("Luvus has not observed the pane's processes after %d scans; its agent may look like a plain shell", scanTries)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(scanGap):
+		}
+	}
+}
+
 func (c Client) identified(ctx context.Context, pane, terminalID string, send func() error) error {
 	if _, done := scanned.LoadOrStore(c.Socket+"\x00"+pane+"\x00"+terminalID, true); !done {
 		_ = c.scan(ctx, pane, terminalID, 1)
