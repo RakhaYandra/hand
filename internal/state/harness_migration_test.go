@@ -104,7 +104,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 14 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 15 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -274,7 +274,7 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
@@ -328,7 +328,7 @@ func TestAVersion10HomeLearnsDevices(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if devices, err := s.Devices(ctx); err != nil || len(devices) != 0 {
@@ -377,7 +377,7 @@ func TestAVersion11HomeKeepsItsPhonesAndLearnsTheLabel(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	old, ok, err := s.DeviceWithSecret(ctx, 1, hashA)
@@ -484,7 +484,7 @@ func TestAVersion13HomeKeepsItsTimersAndLearnsWaits(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	timers, err := s.Timers(ctx)
@@ -514,5 +514,52 @@ func TestAVersion13HomeKeepsItsTimersAndLearnsWaits(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() {
 		t.Fatal("the migration left foreign key violations")
+	}
+}
+
+func TestAVersion13HomeDefaultsAttemptsToOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:13] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 13`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
+		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x')`,
+		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'b', 'stopped', 'x')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d, %v", v, err)
+	}
+	if old, err := s.Attempt(ctx, 1); err != nil || old.Access != AccessOpen {
+		t.Fatalf("old attempt access = %+v, %v", old, err)
+	}
+	next, err := s.AddAttempt(ctx, AttemptSpec{TaskID: 1, Harness: "claude", Access: "boxed", Argv: []string{"/bin/claude", "x"}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Attempt(ctx, next.ID); err != nil || got.Access != "boxed" {
+		t.Fatalf("stored attempt access = %+v, %v", got, err)
 	}
 }

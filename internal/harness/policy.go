@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/inbox"
+	"github.com/atqamz/hand/internal/sandbox"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -148,9 +149,12 @@ func LoadPolicy(home string) (Policy, error) {
 	if len(p.Profiles) == 0 {
 		return Policy{}, fmt.Errorf("%w: %s defines no profiles", state.ErrInvalid, path)
 	}
-	for name := range p.Profiles {
+	for name, spec := range p.Profiles {
 		if !profileName.MatchString(name) {
 			return Policy{}, fmt.Errorf("%w: %s: profile name %q must match %s", state.ErrInvalid, path, name, profileName)
+		}
+		if spec.Access != "" && !sandbox.ValidMode(spec.Access) {
+			return Policy{}, fmt.Errorf("%w: %s: profile %q access %q must be one of %s", state.ErrInvalid, path, name, spec.Access, strings.Join(sandbox.Modes, ", "))
 		}
 	}
 	return p, nil

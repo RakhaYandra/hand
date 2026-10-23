@@ -84,6 +84,14 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 	rt.srv.Handle("agent.read", rt.read)
 	rt.srv.Handle("agent.keys", rt.keys)
 	rt.srv.Handle("terminal.backend.processes", rt.processes)
+	rt.srv.Handle("uhp.capabilities", func(json.RawMessage) (any, error) {
+		return map[string]any{
+			"type":              "uhp_capabilities",
+			"protocol":          map[string]any{"name": "luvus-uhp", "major": 1, "minor": 0},
+			"methods":           append(slices.Clone(luvus.Required), "events.subscribe", "terminal.backend.processes"),
+			"server_generation": rt.srv.Generation(),
+		}, nil
+	})
 	t.Cleanup(rt.exitAll)
 	return rt
 }

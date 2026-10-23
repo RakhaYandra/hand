@@ -30,7 +30,7 @@ func TestLoadPolicyAndPickAProfile(t *testing.T) {
 	if got := p.Names(); !slices.Equal(got, []string{"deep", "quick"}) {
 		t.Fatalf("names = %q", got)
 	}
-	if s, err := p.Profile("deep"); err != nil || s != (Spec{"claude", "opus", "xhigh"}) {
+	if s, err := p.Profile("deep"); err != nil || s != (Spec{Harness: "claude", Model: "opus", Effort: "xhigh"}) {
 		t.Fatalf("deep = %+v, %v", s, err)
 	}
 	if _, err := p.Profile("fast"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "deep, quick") {
@@ -184,5 +184,23 @@ func TestPolicyReadsTheInboxSetting(t *testing.T) {
 		if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), PolicyFile) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("inbox %s err = %v, want %q", body, err, want)
 		}
+	}
+}
+
+func TestProfilesCarryAnAccessMode(t *testing.T) {
+	home := writePolicy(t, `{"profiles":{"safe":{"harness":"claude","model":"opus","effort":"high","access":"boxed"},"plain":{"harness":"claude","model":"opus","effort":"high"}}}`)
+	p, err := LoadPolicy(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := p.Profile("safe"); err != nil || s.Access != "boxed" || s.AccessMode() != "boxed" {
+		t.Fatalf("safe = %+v, %v", s, err)
+	}
+	if s, err := p.Profile("plain"); err != nil || s.Access != "" || s.AccessMode() != "open" {
+		t.Fatalf("plain = %+v, %v", s, err)
+	}
+	bad := writePolicy(t, `{"profiles":{"safe":{"harness":"claude","model":"opus","effort":"high","access":"sandboxed"}}}`)
+	if _, err := LoadPolicy(bad); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "open, boxed") {
+		t.Fatalf("bad access err = %v", err)
 	}
 }

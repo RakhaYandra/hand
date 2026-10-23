@@ -18,6 +18,7 @@ import (
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+	"github.com/atqamz/hand/internal/sandbox"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -49,6 +50,9 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	}
 	if list := fx.h.ok("attempt", "list"); !strings.Contains(list, "a1,t1,claude,sonnet,running") {
 		t.Fatalf("list = %q", list)
+	}
+	if strings.Contains(show, "access:") {
+		t.Fatalf("show = %q, an open attempt should not name its access", show)
 	}
 	_, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
 	if code != 3 || !strings.Contains(errOut, "already has live attempt a1") {
@@ -1005,5 +1009,70 @@ func TestAttemptStartContinueRefusesAMissingBranchBeforeRecordingAnAttempt(t *te
 	}
 	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a2") {
 		t.Fatalf("refused start left an attempt: %q", list)
+	}
+}
+
+func boxedPolicy(t *testing.T, h *harness) {
+	t.Helper()
+	body := `{"profiles":{"safe":{"harness":"claude","model":"sonnet","effort":"low","access":"boxed"},"plain":{"harness":"claude","model":"sonnet","effort":"low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAttemptStartBoxesAProfileAndWaitsForRecognition(t *testing.T) {
+	fx := newAttemptFixture(t)
+	boxedPolicy(t, fx.h)
+	dir := fx.h.vars["PATH"]
+	claude := fakebin.Install(t, dir, "claude", "fake", map[string]string{"sleep": "300s"})
+	hand := fakebin.Install(t, dir, "hand", "wrap", map[string]string{"exec": claude})
+	oldExe := *cli.HandExe
+	*cli.HandExe = func() (string, error) { return hand, nil }
+	t.Cleanup(func() { *cli.HandExe = oldExe })
+	oldProbe := sandbox.Prober
+	sandbox.Prober = func() sandbox.Support {
+		return sandbox.Support{Backend: "landlock", ABI: 10, UnixSockets: true}
+	}
+	t.Cleanup(func() { sandbox.Prober = oldProbe })
+
+	out := fx.h.ok("attempt", "start", "--profile", "safe", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "status: running") {
+		t.Fatalf("start = %q", out)
+	}
+	call := fx.rt.lastCreate()
+	wt := fx.h.worktree("t1-a1")
+	want := []string{hand, "sandbox", "exec", "--worktree", wt, "--access", "boxed", "--harness", "claude", "--", claude}
+	if len(call.Command) <= len(want) || !slices.Equal(call.Command[:len(want)], want) {
+		t.Fatalf("argv = %q, want prefix %q", call.Command, want)
+	}
+	show := fx.h.ok("attempt", "show", "a1")
+	if !strings.Contains(show, "access: boxed") {
+		t.Fatalf("show = %q, missing access", show)
+	}
+	var scans int
+	fx.rt.set(func(rt *fakeRuntime) { scans = rt.scans })
+	if scans == 0 {
+		t.Fatal("attempt start did not ask for the pane's processes")
+	}
+}
+
+func TestAttemptStartRefusesBoxedWithoutUnixSocketConfinement(t *testing.T) {
+	fx := newAttemptFixture(t)
+	boxedPolicy(t, fx.h)
+	oldProbe := sandbox.Prober
+	sandbox.Prober = func() sandbox.Support {
+		return sandbox.Support{Backend: "none", Reason: "the kernel does not offer Landlock"}
+	}
+	t.Cleanup(func() { sandbox.Prober = oldProbe })
+
+	_, errOut, code := fx.h.run("attempt", "start", "--profile", "safe", "--prompt-file", fx.brief, "t1")
+	if code != 2 || !strings.Contains(errOut, "boxed is unavailable") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(fx.h.worktree("t1-a1")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("worktree exists after refusing boxed: %v", err)
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a1") {
+		t.Fatalf("attempt record exists after refusing boxed: %q", list)
 	}
 }

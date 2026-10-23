@@ -24,6 +24,10 @@ func ValidMode(mode string) bool {
 	return mode == Open || mode == Boxed
 }
 
+func Wrap(exe, worktree, harness string, argv []string) []string {
+	return append([]string{exe, "sandbox", "exec", "--worktree", worktree, "--access", Boxed, "--harness", harness, "--"}, argv...)
+}
+
 type Rule struct {
 	Path  string
 	Write bool

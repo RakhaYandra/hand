@@ -17,11 +17,14 @@ import (
 	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/sandbox"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
 const liveAttemptsWarn = 5
+
+var handExecutable = os.Executable
 
 var errLaunchUnknown = errors.New("launch outcome unknown")
 
@@ -72,16 +75,31 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	access := spec.AccessMode()
+	if access == sandbox.Boxed {
+		if p := sandbox.Prober(); !p.UnixSockets {
+			return fmt.Errorf("%w: access boxed is unavailable: %s", state.ErrInvalid, p.Reason)
+		}
+	}
 	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	exe, err := handExecutable()
 	if err != nil {
 		return err
 	}
 	text := string(prompt) + reportFooter(exe)
-	argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree) }
+	argvFor := func(worktree string) ([]string, error) {
+		argv, err := harness.Argv(bin, spec, text, worktree)
+		if err != nil {
+			return nil, err
+		}
+		if access == sandbox.Boxed {
+			return sandbox.Wrap(exe, worktree, spec.Harness, argv), nil
+		}
+		return argv, nil
+	}
 	if err := harness.CheckPrompt(text); err != nil {
 		return err
 	}
@@ -118,7 +136,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if len(live) >= liveAttemptsWarn {
 			r.warn(fmt.Sprintf("%d attempts are already live in this fleet; each worker, and any dev server or browser it starts, uses memory", len(live)))
 		}
-		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Access: access, ArgvFor: argvFor, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}
@@ -133,6 +151,15 @@ func cmdAttemptStart(r *runner, args []string) error {
 			return err
 		}
 		ref := state.AttemptRef(running.ID)
+		if running.Access == sandbox.Boxed {
+			detail := "agent recognised"
+			if err := guardAgent(ctx, c, running); err != nil {
+				detail = err.Error()
+			}
+			if err := st.NoteAttempt(ctx, running.ID, "guarded", detail); err != nil {
+				return err
+			}
+		}
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("task", state.TaskRef(running.TaskID))
@@ -162,6 +189,22 @@ func cmdAttemptStart(r *runner, args []string) error {
 		help = append(help, more...)
 		d.Help(help...)
 		return r.print(&d)
+	})
+}
+
+func guardAgent(ctx context.Context, c luvus.Client, a state.Attempt) error {
+	caps, err := c.Check(ctx)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(caps.Methods, "terminal.backend.processes") {
+		return nil
+	}
+	return c.Recognize(ctx, luvus.Terminal{
+		ServerGeneration: a.ServerGeneration,
+		TerminalID:       a.TerminalID,
+		PaneID:           a.PaneID,
+		Root:             luvus.Root{PID: a.PID, StartMarker: a.StartMarker},
 	})
 }
 
@@ -788,6 +831,9 @@ func cmdAttemptShow(r *runner, args []string) error {
 		d.Field("attempt", ref)
 		d.Field("task", state.TaskRef(a.TaskID))
 		d.Field("harness", strings.Join(slices.DeleteFunc([]string{a.Harness, a.Model, a.Effort}, func(v string) bool { return v == "" }), " "))
+		if a.Access != "" && a.Access != state.AccessOpen {
+			d.Field("access", a.Access)
+		}
 		d.Field("status", a.Status)
 		if a.Reason != "" {
 			d.Field("reason", a.Reason)

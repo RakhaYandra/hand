@@ -24,4 +24,5 @@ var (
 	RemoveIfSame     = removeIfSame
 	AcceptTrust      = acceptTrust
 	CloseOnExec      = &closeOnExec
+	HandExe          = &handExecutable
 )

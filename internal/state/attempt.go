@@ -70,6 +70,7 @@ type AttemptSpec struct {
 	Harness   string
 	Model     string
 	Effort    string
+	Access    string
 	Argv      []string
 	ArgvFor   func(worktree string) ([]string, error)
 	Continues int64
@@ -81,6 +82,7 @@ type Attempt struct {
 	Harness  string
 	Model    string
 	Effort   string
+	Access   string
 	Argv     []string
 	Worktree string
 	Branch   string
@@ -93,14 +95,16 @@ type Attempt struct {
 	CleanedAt string
 }
 
+const AccessOpen = "open"
+
 func (a Attempt) Live() bool { return a.Status == AttemptLaunching || a.Status == AttemptRunning }
 
-const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at FROM attempt`
+const attemptSelect = `SELECT id, task_id, harness, model, effort, access, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at FROM attempt`
 
 func scanAttempt(row scanner) (Attempt, error) {
 	var a Attempt
 	var argv string
-	err := row.Scan(&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort, &argv, &a.Worktree, &a.Branch, &a.Status,
+	err := row.Scan(&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort, &a.Access, &argv, &a.Worktree, &a.Branch, &a.Status,
 		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt)
 	if err != nil {
 		return a, err
@@ -129,7 +133,11 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 	if !slices.Contains(Harnesses, spec.Harness) {
 		return Attempt{}, fmt.Errorf("%w: harness %q must be one of %s", ErrInvalid, spec.Harness, strings.Join(Harnesses, ", "))
 	}
-	a := Attempt{TaskID: spec.TaskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: spec.Argv, Status: AttemptLaunching, CreatedAt: s.stamp()}
+	access := spec.Access
+	if access == "" {
+		access = AccessOpen
+	}
+	a := Attempt{TaskID: spec.TaskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Access: access, Argv: spec.Argv, Status: AttemptLaunching, CreatedAt: s.stamp()}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		var status string
 		err := tx.QueryRow(`SELECT status FROM task WHERE id = ?`, spec.TaskID).Scan(&status)
@@ -192,8 +200,8 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, continues, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt); err != nil {
+		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, access, argv, worktree, branch, status, continues, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, a.Access, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt); err != nil {
 			return err
 		}
 		if err := cancelWaits(tx, a.TaskID, a.CreatedAt); err != nil {

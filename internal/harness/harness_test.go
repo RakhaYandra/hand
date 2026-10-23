@@ -122,88 +122,88 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		kind string
 		text string
 	}{
-		{"alias", Spec{"claude", "opus", "low"}, Env{}, ok, ""},
-		{"alias with a window", Spec{"claude", "sonnet[1m]", "max"}, Env{}, ok, ""},
-		{"claude id", Spec{"claude", "claude-opus-5-5", "xhigh"}, Env{}, ok, ""},
-		{"claude id with a window", Spec{"claude", "claude-opus-4-6[1m]", "high"}, Env{}, ok, ""},
-		{"gateway name", Spec{"claude", "acme-opus", "high"}, Env{}, warn, "claude model acme-opus is not an alias"},
-		{"bedrock id", Spec{"claude", "us.anthropic.claude-opus-4-8", "high"}, Env{}, warn, "us.anthropic.claude-opus-4-8"},
-		{"bedrock versioned id", Spec{"claude", "us.anthropic.claude-opus-5-5-v1:0", "high"}, Env{}, warn, "starting anyway"},
-		{"arn", Spec{"claude", "arn:aws:bedrock:us-east-1:0:inference-profile/x", "high"}, Env{}, warn, "arn:aws:bedrock"},
-		{"vertex id", Spec{"claude", "claude-sonnet-4-5@20250929", "high"}, Env{}, warn, "starting anyway"},
-		{"provider prefix", Spec{"claude", "anthropic/claude-opus-4-8", "high"}, Env{}, warn, "starting anyway"},
-		{"gateway prefix", Spec{"claude", "my-gateway/claude-opus-5-5", "high"}, Env{}, warn, "starting anyway"},
-		{"opusplan", Spec{"claude", "opusplan", "high"}, Env{}, warn, "claude model opusplan"},
-		{"best", Spec{"claude", "best", "high"}, Env{}, warn, "claude model best"},
-		{"capitals", Spec{"claude", "Claude-Opus-5", "high"}, Env{}, warn, "starting anyway"},
-		{"underscore", Spec{"claude", "claude-opus-4-8_v2", "high"}, Env{}, warn, "starting anyway"},
-		{"other vendor", Spec{"claude", "glm-5", "high"}, Env{}, warn, "starting anyway"},
-		{"unknown effort", Spec{"claude", "sonnet", "ultra"}, Env{}, warn, "effort ultra"},
-		{"empty model", Spec{"claude", "", "low"}, Env{}, refuse, "claude model"},
-		{"empty effort", Spec{"claude", "sonnet", ""}, Env{}, refuse, "claude effort"},
-		{"space", Spec{"claude", "my model", "low"}, Env{}, refuse, "claude model"},
-		{"flag", Spec{"claude", "-x", "low"}, Env{}, refuse, "claude model"},
-		{"nul", Spec{"claude", "a\x00b", "low"}, Env{}, refuse, "claude model"},
-		{"newline", Spec{"claude", "a\nb", "low"}, Env{}, refuse, "claude model"},
-		{"tab", Spec{"claude", "a\tb", "low"}, Env{}, refuse, "claude model"},
-		{"escape", Spec{"claude", "a\x1b[31m", "low"}, Env{}, refuse, "claude model"},
-		{"quote", Spec{"claude", `a"b`, "low"}, Env{}, refuse, "claude model"},
-		{"semicolon", Spec{"claude", "a;b", "low"}, Env{}, refuse, "claude model"},
-		{"dollar", Spec{"claude", "$HOME", "low"}, Env{}, refuse, "claude model"},
-		{"backtick", Spec{"claude", "a`b", "low"}, Env{}, refuse, "claude model"},
-		{"too long", Spec{"claude", long, "low"}, Env{}, refuse, "claude model"},
-		{"effort with a space", Spec{"claude", "sonnet", "very high"}, Env{}, refuse, "claude effort"},
-		{"effort with a flag", Spec{"claude", "sonnet", "--max"}, Env{}, refuse, "claude effort"},
-		{"effort with a newline", Spec{"claude", "sonnet", "low\n"}, Env{}, refuse, "claude effort"},
-		{"unknown harness", Spec{"gemini", "x", "low"}, Env{}, refuse, `harness "gemini"`},
+		{"alias", Spec{Harness: "claude", Model: "opus", Effort: "low"}, Env{}, ok, ""},
+		{"alias with a window", Spec{Harness: "claude", Model: "sonnet[1m]", Effort: "max"}, Env{}, ok, ""},
+		{"claude id", Spec{Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"}, Env{}, ok, ""},
+		{"claude id with a window", Spec{Harness: "claude", Model: "claude-opus-4-6[1m]", Effort: "high"}, Env{}, ok, ""},
+		{"gateway name", Spec{Harness: "claude", Model: "acme-opus", Effort: "high"}, Env{}, warn, "claude model acme-opus is not an alias"},
+		{"bedrock id", Spec{Harness: "claude", Model: "us.anthropic.claude-opus-4-8", Effort: "high"}, Env{}, warn, "us.anthropic.claude-opus-4-8"},
+		{"bedrock versioned id", Spec{Harness: "claude", Model: "us.anthropic.claude-opus-5-5-v1:0", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"arn", Spec{Harness: "claude", Model: "arn:aws:bedrock:us-east-1:0:inference-profile/x", Effort: "high"}, Env{}, warn, "arn:aws:bedrock"},
+		{"vertex id", Spec{Harness: "claude", Model: "claude-sonnet-4-5@20250929", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"provider prefix", Spec{Harness: "claude", Model: "anthropic/claude-opus-4-8", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"gateway prefix", Spec{Harness: "claude", Model: "my-gateway/claude-opus-5-5", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"opusplan", Spec{Harness: "claude", Model: "opusplan", Effort: "high"}, Env{}, warn, "claude model opusplan"},
+		{"best", Spec{Harness: "claude", Model: "best", Effort: "high"}, Env{}, warn, "claude model best"},
+		{"capitals", Spec{Harness: "claude", Model: "Claude-Opus-5", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"underscore", Spec{Harness: "claude", Model: "claude-opus-4-8_v2", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"other vendor", Spec{Harness: "claude", Model: "glm-5", Effort: "high"}, Env{}, warn, "starting anyway"},
+		{"unknown effort", Spec{Harness: "claude", Model: "sonnet", Effort: "ultra"}, Env{}, warn, "effort ultra"},
+		{"empty model", Spec{Harness: "claude", Model: "", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"empty effort", Spec{Harness: "claude", Model: "sonnet", Effort: ""}, Env{}, refuse, "claude effort"},
+		{"space", Spec{Harness: "claude", Model: "my model", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"flag", Spec{Harness: "claude", Model: "-x", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"nul", Spec{Harness: "claude", Model: "a\x00b", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"newline", Spec{Harness: "claude", Model: "a\nb", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"tab", Spec{Harness: "claude", Model: "a\tb", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"escape", Spec{Harness: "claude", Model: "a\x1b[31m", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"quote", Spec{Harness: "claude", Model: `a"b`, Effort: "low"}, Env{}, refuse, "claude model"},
+		{"semicolon", Spec{Harness: "claude", Model: "a;b", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"dollar", Spec{Harness: "claude", Model: "$HOME", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"backtick", Spec{Harness: "claude", Model: "a`b", Effort: "low"}, Env{}, refuse, "claude model"},
+		{"too long", Spec{Harness: "claude", Model: long, Effort: "low"}, Env{}, refuse, "claude model"},
+		{"effort with a space", Spec{Harness: "claude", Model: "sonnet", Effort: "very high"}, Env{}, refuse, "claude effort"},
+		{"effort with a flag", Spec{Harness: "claude", Model: "sonnet", Effort: "--max"}, Env{}, refuse, "claude effort"},
+		{"effort with a newline", Spec{Harness: "claude", Model: "sonnet", Effort: "low\n"}, Env{}, refuse, "claude effort"},
+		{"unknown harness", Spec{Harness: "gemini", Model: "x", Effort: "low"}, Env{}, refuse, `harness "gemini"`},
 		{"no harness", Spec{}, Env{}, refuse, "harness"},
 
-		{"codex listed", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: cached}, ok, ""},
-		{"codex unlisted", Spec{"codex", "acme-coder-1", "low"}, Env{CodexHome: cached}, warn, "codex model acme-coder-1 is not in codex's model list"},
-		{"codex effort not listed", Spec{"codex", "gpt-5.5", "low"}, Env{CodexHome: cached}, warn, "codex model gpt-5.5 lists efforts high, not low"},
-		{"codex without a cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: t.TempDir()}, warn, "no model list yet; run `hand models --refresh codex`"},
-		{"codex with a broken cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: broken}, warn, "no model list yet"},
-		{"codex detected", Spec{"codex", "gpt-6-luna", "medium"}, codexListed, ok, ""},
-		{"codex detected effort", Spec{"codex", "gpt-6-luna", "max"}, codexListed, warn, "lists efforts low, medium, not max"},
-		{"codex hidden model", Spec{"codex", "codex-auto-review", "low"}, codexListed, ok, ""},
-		{"codex vanished", Spec{"codex", "gpt-5.4", "low"}, codexListed, warn, "model gpt-5.4 is no longer listed by codex"},
-		{"claude detected custom", Spec{"claude", "acme-opus", "max"}, claudeListed, ok, ""},
-		{"claude detected effort", Spec{"claude", "claude-opus-4-6", "xhigh"}, claudeListed, warn, "effort xhigh is not one of low, medium, high, max"},
-		{"claude vanished", Spec{"claude", "old-gw", "low"}, claudeListed, warn, "model old-gw is no longer listed by claude"},
-		{"claude absent from the list", Spec{"claude", "acme-sonnet", "low"}, claudeListed, warn, "claude model acme-sonnet is not an alias"},
-		{"codex empty model", Spec{"codex", "", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
-		{"codex empty effort", Spec{"codex", "gpt-6-luna", ""}, Env{CodexHome: cached}, refuse, "codex effort"},
-		{"codex model with a space", Spec{"codex", "gpt 6", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
-		{"codex flag model", Spec{"codex", "--oss", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
-		{"codex effort with an equals sign", Spec{"codex", "gpt-6-luna", "low=1"}, Env{CodexHome: cached}, refuse, "codex effort"},
-		{"codex custom effort", Spec{"codex", "gpt-6-luna", "ultra"}, Env{CodexHome: cached}, warn, "lists efforts low, medium, not ultra"},
+		{"codex listed", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, Env{CodexHome: cached}, ok, ""},
+		{"codex unlisted", Spec{Harness: "codex", Model: "acme-coder-1", Effort: "low"}, Env{CodexHome: cached}, warn, "codex model acme-coder-1 is not in codex's model list"},
+		{"codex effort not listed", Spec{Harness: "codex", Model: "gpt-5.5", Effort: "low"}, Env{CodexHome: cached}, warn, "codex model gpt-5.5 lists efforts high, not low"},
+		{"codex without a cache", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, Env{CodexHome: t.TempDir()}, warn, "no model list yet; run `hand models --refresh codex`"},
+		{"codex with a broken cache", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, Env{CodexHome: broken}, warn, "no model list yet"},
+		{"codex detected", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "medium"}, codexListed, ok, ""},
+		{"codex detected effort", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "max"}, codexListed, warn, "lists efforts low, medium, not max"},
+		{"codex hidden model", Spec{Harness: "codex", Model: "codex-auto-review", Effort: "low"}, codexListed, ok, ""},
+		{"codex vanished", Spec{Harness: "codex", Model: "gpt-5.4", Effort: "low"}, codexListed, warn, "model gpt-5.4 is no longer listed by codex"},
+		{"claude detected custom", Spec{Harness: "claude", Model: "acme-opus", Effort: "max"}, claudeListed, ok, ""},
+		{"claude detected effort", Spec{Harness: "claude", Model: "claude-opus-4-6", Effort: "xhigh"}, claudeListed, warn, "effort xhigh is not one of low, medium, high, max"},
+		{"claude vanished", Spec{Harness: "claude", Model: "old-gw", Effort: "low"}, claudeListed, warn, "model old-gw is no longer listed by claude"},
+		{"claude absent from the list", Spec{Harness: "claude", Model: "acme-sonnet", Effort: "low"}, claudeListed, warn, "claude model acme-sonnet is not an alias"},
+		{"codex empty model", Spec{Harness: "codex", Model: "", Effort: "low"}, Env{CodexHome: cached}, refuse, "codex model"},
+		{"codex empty effort", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: ""}, Env{CodexHome: cached}, refuse, "codex effort"},
+		{"codex model with a space", Spec{Harness: "codex", Model: "gpt 6", Effort: "low"}, Env{CodexHome: cached}, refuse, "codex model"},
+		{"codex flag model", Spec{Harness: "codex", Model: "--oss", Effort: "low"}, Env{CodexHome: cached}, refuse, "codex model"},
+		{"codex effort with an equals sign", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low=1"}, Env{CodexHome: cached}, refuse, "codex effort"},
+		{"codex custom effort", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "ultra"}, Env{CodexHome: cached}, warn, "lists efforts low, medium, not ultra"},
 
-		{"agy listed", Spec{"agy", "gemini-3.1-pro-high", ""}, agyListed, ok, ""},
-		{"agy unlisted", Spec{"agy", "gemini-9", ""}, agyListed, warn, "agy model gemini-9 is not in `agy models`"},
-		{"agy vanished", Spec{"agy", "gemini-2", ""}, agyListed, warn, "model gemini-2 is no longer listed by agy"},
-		{"agy listing failed", Spec{"agy", "gemini-9", ""}, agyFailed, warn, "agy is not signed in"},
-		{"agy no list yet", Spec{"agy", "gemini-9", ""}, agyNone, warn, "agy model gemini-9 could not be checked: no model list yet"},
-		{"agy effort", Spec{"agy", "gemini-3.8-flash-low", "high"}, agyListed, refuse, "agy names the effort in its model id"},
-		{"agy empty model", Spec{"agy", "", ""}, agyListed, refuse, "agy model"},
-		{"agy model with a space", Spec{"agy", "gemini 3", ""}, agyListed, refuse, "agy model"},
+		{"agy listed", Spec{Harness: "agy", Model: "gemini-3.1-pro-high", Effort: ""}, agyListed, ok, ""},
+		{"agy unlisted", Spec{Harness: "agy", Model: "gemini-9", Effort: ""}, agyListed, warn, "agy model gemini-9 is not in `agy models`"},
+		{"agy vanished", Spec{Harness: "agy", Model: "gemini-2", Effort: ""}, agyListed, warn, "model gemini-2 is no longer listed by agy"},
+		{"agy listing failed", Spec{Harness: "agy", Model: "gemini-9", Effort: ""}, agyFailed, warn, "agy is not signed in"},
+		{"agy no list yet", Spec{Harness: "agy", Model: "gemini-9", Effort: ""}, agyNone, warn, "agy model gemini-9 could not be checked: no model list yet"},
+		{"agy effort", Spec{Harness: "agy", Model: "gemini-3.8-flash-low", Effort: "high"}, agyListed, refuse, "agy names the effort in its model id"},
+		{"agy empty model", Spec{Harness: "agy", Model: "", Effort: ""}, agyListed, refuse, "agy model"},
+		{"agy model with a space", Spec{Harness: "agy", Model: "gemini 3", Effort: ""}, agyListed, refuse, "agy model"},
 
-		{"copilot auto", Spec{"copilot", "auto", ""}, Env{}, ok, ""},
-		{"copilot auto with a list", Spec{"copilot", "auto", ""}, copilotListed, ok, ""},
-		{"copilot auto with an effort", Spec{"copilot", "auto", "high"}, copilotListed, warn, "copilot model auto takes no effort"},
-		{"copilot listed", Spec{"copilot", "gpt-6-luna", "xhigh"}, copilotListed, ok, ""},
-		{"copilot listed without an effort", Spec{"copilot", "gpt-6-luna", ""}, copilotListed, ok, ""},
-		{"copilot unlisted", Spec{"copilot", "acme-coder-1", ""}, copilotListed, warn, "copilot model acme-coder-1 is not in `copilot help config`"},
-		{"copilot vanished", Spec{"copilot", "gpt-5.5", ""}, copilotListed, warn, "model gpt-5.5 is no longer listed by copilot"},
-		{"copilot effort not offered", Spec{"copilot", "gpt-6-luna", "ultra"}, copilotListed, warn, "effort ultra is not one of none, minimal, low, medium, high, xhigh, max"},
-		{"copilot effort not offered without a list", Spec{"copilot", "gpt-6-luna", "ultra"}, agyNone, warn, "effort ultra is not one of"},
-		{"copilot auto with a bad effort", Spec{"copilot", "auto", "ultra"}, copilotListed, warn, "effort ultra is not one of"},
-		{"copilot no list yet", Spec{"copilot", "gpt-6-luna", ""}, agyNone, warn, "copilot model gpt-6-luna could not be checked: no model list yet; run `hand models --refresh copilot`"},
-		{"copilot bad effort", Spec{"copilot", "auto", "High"}, Env{}, refuse, "copilot effort"},
-		{"copilot empty model", Spec{"copilot", "", ""}, Env{}, refuse, "copilot model"},
+		{"copilot auto", Spec{Harness: "copilot", Model: "auto", Effort: ""}, Env{}, ok, ""},
+		{"copilot auto with a list", Spec{Harness: "copilot", Model: "auto", Effort: ""}, copilotListed, ok, ""},
+		{"copilot auto with an effort", Spec{Harness: "copilot", Model: "auto", Effort: "high"}, copilotListed, warn, "copilot model auto takes no effort"},
+		{"copilot listed", Spec{Harness: "copilot", Model: "gpt-6-luna", Effort: "xhigh"}, copilotListed, ok, ""},
+		{"copilot listed without an effort", Spec{Harness: "copilot", Model: "gpt-6-luna", Effort: ""}, copilotListed, ok, ""},
+		{"copilot unlisted", Spec{Harness: "copilot", Model: "acme-coder-1", Effort: ""}, copilotListed, warn, "copilot model acme-coder-1 is not in `copilot help config`"},
+		{"copilot vanished", Spec{Harness: "copilot", Model: "gpt-5.5", Effort: ""}, copilotListed, warn, "model gpt-5.5 is no longer listed by copilot"},
+		{"copilot effort not offered", Spec{Harness: "copilot", Model: "gpt-6-luna", Effort: "ultra"}, copilotListed, warn, "effort ultra is not one of none, minimal, low, medium, high, xhigh, max"},
+		{"copilot effort not offered without a list", Spec{Harness: "copilot", Model: "gpt-6-luna", Effort: "ultra"}, agyNone, warn, "effort ultra is not one of"},
+		{"copilot auto with a bad effort", Spec{Harness: "copilot", Model: "auto", Effort: "ultra"}, copilotListed, warn, "effort ultra is not one of"},
+		{"copilot no list yet", Spec{Harness: "copilot", Model: "gpt-6-luna", Effort: ""}, agyNone, warn, "copilot model gpt-6-luna could not be checked: no model list yet; run `hand models --refresh copilot`"},
+		{"copilot bad effort", Spec{Harness: "copilot", Model: "auto", Effort: "High"}, Env{}, refuse, "copilot effort"},
+		{"copilot empty model", Spec{Harness: "copilot", Model: "", Effort: ""}, Env{}, refuse, "copilot model"},
 
 		{"opencode bare", Spec{Harness: "opencode"}, Env{}, ok, ""},
-		{"opencode model", Spec{"opencode", "opencode/big-pickle", ""}, Env{}, refuse, "its own configuration"},
-		{"opencode effort", Spec{"opencode", "", "high"}, Env{}, refuse, "its own configuration"},
+		{"opencode model", Spec{Harness: "opencode", Model: "opencode/big-pickle", Effort: ""}, Env{}, refuse, "its own configuration"},
+		{"opencode effort", Spec{Harness: "opencode", Model: "", Effort: "high"}, Env{}, refuse, "its own configuration"},
 	}
 	for _, row := range rows {
 		got, err := Check(row.spec, row.env)
@@ -231,21 +231,21 @@ func TestCodexHome(t *testing.T) {
 }
 
 func TestArgvIsExact(t *testing.T) {
-	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "")
+	c, err := Argv("/bin/claude", Spec{Harness: "claude", Model: "sonnet", Effort: "low"}, "fix it", "")
 	if err != nil || !slices.Equal(c, []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("claude argv = %q, %v", c, err)
 	}
 	for _, dir := range spacedDirs(t) {
-		x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", dir)
+		x, err := Argv("/bin/codex", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "medium"}, "fix it", dir)
 		if err != nil || !slices.Equal(x, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", "gpt-6-luna", "-c", "model_reasoning_effort=medium", "fix it"}) {
 			t.Fatalf("codex argv = %q, %v", x, err)
 		}
 	}
-	if _, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", "relative/dir"); !errors.Is(err, state.ErrInvalid) {
+	if _, err := Argv("/bin/codex", Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "medium"}, "fix it", "relative/dir"); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("relative dir err = %v", err)
 	}
 	for _, bad := range []string{"", "  ", "-p trick", "a\x00b", strings.Repeat("x", MaxPromptBytes+1)} {
-		if _, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, bad, ""); !errors.Is(err, state.ErrInvalid) {
+		if _, err := Argv("/bin/claude", Spec{Harness: "claude", Model: "sonnet", Effort: "low"}, bad, ""); !errors.Is(err, state.ErrInvalid) {
 			t.Fatalf("prompt %.10q err = %v", bad, err)
 		}
 	}
@@ -278,12 +278,12 @@ func TestCopilotArgvIsExact(t *testing.T) {
 		{"", []string{"/bin/copilot", "--no-auto-update", "--model", "auto", "--allow-all-tools", "--allow-all-paths", "--session-id"}},
 		{"high", []string{"/bin/copilot", "--no-auto-update", "--model", "auto", "--reasoning-effort", "high", "--allow-all-tools", "--allow-all-paths", "--session-id"}},
 	} {
-		got, err := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "")
+		got, err := Argv("/bin/copilot", Spec{Harness: "copilot", Model: "auto", Effort: tc.effort}, "brief", "")
 		n := len(tc.pre)
 		if err != nil || len(got) != n+3 || !slices.Equal(got[:n], tc.pre) || !uuidPattern.MatchString(got[n]) || !slices.Equal(got[n+1:], []string{"-i", "brief"}) {
 			t.Fatalf("effort %q: argv = %q, %v", tc.effort, got, err)
 		}
-		again, _ := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "")
+		again, _ := Argv("/bin/copilot", Spec{Harness: "copilot", Model: "auto", Effort: tc.effort}, "brief", "")
 		if again[n] == got[n] {
 			t.Fatalf("two launches share the session id %s", got[n])
 		}
@@ -303,7 +303,7 @@ func TestCopilotStartsWorkersOnly(t *testing.T) {
 }
 
 func TestAgyArgvIsExact(t *testing.T) {
-	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "")
+	got, err := Argv("/bin/agy", Spec{Harness: "agy", Model: "gemini-3.8-flash-low", Effort: ""}, "brief", "")
 	if want := []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "brief"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}

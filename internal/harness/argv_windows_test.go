@@ -10,7 +10,7 @@ import (
 )
 
 func TestArgvRefusesACommandLineWindowsCannotStart(t *testing.T) {
-	spec, dir := Spec{"codex", "gpt-6-luna", "low"}, t.TempDir()
+	spec, dir := Spec{Harness: "codex", Model: "gpt-6-luna", Effort: "low"}, t.TempDir()
 	bin := `C:\Users\dev\codex.exe`
 	for name, build := range map[string]func(prompt string) ([]string, error){
 		"worker":     func(p string) ([]string, error) { return Argv(bin, spec, p, dir) },
