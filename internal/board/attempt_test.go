@@ -326,7 +326,7 @@ func TestTheAttemptPageMarksABoxedAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/attempt/a1")
-	contains(t, "boxed attempt page", body, `<span class="badge" data-tone="wait">boxed</span>`)
+	contains(t, "boxed attempt page", body, `<span class="badge" data-tone="wait" title="Landlock-confined files and Unix sockets; the network stays open and report add does not work yet">boxed</span>`)
 	other := briefed(t, st, active(t, st, "Other").ID, "/w", []string{"/bin/claude", "x"})
 	if plain := get(t, board.New(st, token, board.Options{}), "/attempt/"+state.AttemptRef(other.ID)[1:]); strings.Contains(plain, `>boxed</span>`) {
 		t.Fatalf("open attempt page carries a boxed badge:\n%s", plain)
