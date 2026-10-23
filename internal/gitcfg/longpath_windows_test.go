@@ -1,4 +1,4 @@
-package cli_test
+package gitcfg
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/atqamz/hand/internal/cli"
 )
 
 func TestGitCreatesAWorktreeBeyond260Characters(t *testing.T) {
@@ -31,7 +29,7 @@ func TestGitCreatesAWorktreeBeyond260Characters(t *testing.T) {
 		{"add", "-A"},
 		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "x"},
 	} {
-		if _, err := cli.Git(ctx, repo, args...); err != nil {
+		if _, err := run(ctx, repo, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -39,7 +37,7 @@ func TestGitCreatesAWorktreeBeyond260Characters(t *testing.T) {
 	if len(filepath.Join(wt, deep)) <= 260 {
 		t.Fatal("test path is too short")
 	}
-	if _, err := cli.Git(ctx, repo, "worktree", "add", "-q", "-b", "b", wt); err != nil {
+	if _, err := run(ctx, repo, "worktree", "add", "-q", "-b", "b", wt); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(wt, deep)); err != nil {
