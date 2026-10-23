@@ -1,6 +1,6 @@
 # Safe use
 
-Hand runs its agents with their permission prompts skipped, as your own OS user, with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
+Hand runs its agents with their permission prompts skipped, as your own OS user. A profile may opt in to `access: boxed` on Linux, which confines a worker's files and Unix sockets; every other profile runs with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
 
 ## What runs without asking
 
@@ -29,7 +29,7 @@ What Luvus reads as blocked for Codex, opencode and agy permission screens, and 
 
 ## What that means
 
-A worker can:
+For a profile whose access is `open`, which is the default, a worker can:
 
 - read every file your OS account can read: `~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets and each fleet's `board.token`;
 - run any command as that account;
@@ -116,7 +116,41 @@ Workers of one fleet can read the other fleets of the same OS user, with their `
 - **Never Funnel.** Do not publish the board with `tailscale funnel`, a quick tunnel or any public proxy: one session reaches agents with permission prompts skipped. The board refuses requests that Tailscale marks as Funnel traffic, but it cannot tell other public proxies from a tunnel. With `tailscale serve`, allow port 443 on the laptop only to your own user in the tailnet's access rules.
 - **Machine names are public.** Turning on HTTPS certificates for `tailscale serve` writes the machine and tailnet names (`laptop.tailnet.ts.net`) to the public certificate transparency logs. Rename a machine whose name reveals anything before you enable it.
 
-### What Hand checks before running git
+### Boxed access (Linux, opt-in)
+
+A routing profile may say `"access": "boxed"`. `hand attempt start` then launches the harness through `hand sandbox exec`, which applies a Landlock policy to the worker and replaces itself with the harness, so the confined harness is the pane's root process. The launch line recorded on the attempt shows the exact wrapper. A profile without the field, or with `"access": "open"`, launches exactly as before.
+
+Boxed needs a Linux kernel whose Landlock can deny Unix-socket connects (ABI 9). Where it cannot, `hand sandbox exec` and `hand attempt start` exit 2 and run nothing; they never fall back to an unconfined launch. macOS and Windows are unavailable, and `hand doctor` grows a `sandbox` row only when a profile asks for boxed. The supervisor is never boxed, because it needs the Luvus socket.
+
+What a boxed worker can reach:
+
+| Reachable | Why |
+|---|---|
+| the attempt's worktree, read and write | the worker's code |
+| a private temporary folder for the attempt, `TMPDIR`, `TMP` and `TEMP` | build scratch space, set to `tmp/<worktree>` under the fleet home |
+| the project's git directory, read-only, except `objects`, `refs`, `logs`, the attempt's own admin folder under `worktrees` and the lock files git writes | commit, rebase, fetch and push work; `config`, `hooks` and `info` cannot be rewritten |
+| system folders, `/proc`, `/sys`, device files, and the toolchain's package caches and tool data, read and write | running commands and fetching dependencies; the folders that hold installed binaries (`~/go/bin`, `~/.cargo/bin`, `~/.bun/bin`, `~/.rustup/toolchains`, `~/.local/bin`, mise shims) stay read-only, so installing a new toolchain binary inside the box usually fails |
+| the harness's own login and config folders, read and write | Claude Code's `~/.claude` and `~/.claude.json`, Codex's `$CODEX_HOME` or `~/.codex`, opencode's config/data/cache folders, agy's `~/.gemini` and Antigravity config |
+| local git remotes, read and write, when the remote is a bare repository or a repository registered as a project | pushing to a bare or project repository on the same machine; other folders under your home stay out |
+| pathname Unix sockets inside that policy | and no others: abstract Unix sockets and signals are scoped to the sandbox |
+
+The environment is rebuilt. `LUVUS_*`, `HAND_LUVUS_SOCKET`, `SSH_AUTH_SOCK`, `SSH_AGENT_PID`, `DBUS_SESSION_BUS_ADDRESS`, `DBUS_SYSTEM_BUS_ADDRESS`, `GH_TOKEN`, `GITHUB_TOKEN` and `GPG_AGENT_INFO` are dropped, so the worker does not see the Luvus socket, the ssh-agent or the desktop bus, and a token passed that way does not leak.
+
+What it does not protect:
+
+| Not protected | Detail |
+|---|---|
+| the network | TCP and UDP are open. A worker can reach the internet, any service on localhost, and any credential that remains in its environment or in a granted folder |
+| what the policy grants | a hijacked worker can spend the harness login's quota, poison the toolchain caches and config it may write, and rewrite the code in its worktree. Use a separate harness login for Hand |
+| the supervisor | it needs the Luvus socket to drive its workers, so boxing it is a separate problem |
+| prompt injection | it still works through everything the policy grants. Boxed narrows the account and the fleet; it does not make a hostile page or issue safe |
+| egress control, an audit log | Hand has neither |
+
+`~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets, other attempts' worktrees and the Luvus session folder are outside the policy, which is the point. `hand sandbox exec --print --worktree DIR --harness NAME` prints the resolved rules without running anything, and `hand sandbox check` reports the backend and what it can enforce on this machine.
+
+The fleet database and `board.token` are outside the policy too, so a boxed worker cannot open them. That also means it cannot run `hand report add` yet: the report outbox (#965) gives a boxed attempt a private folder to write instead. Until then, have a boxed worker leave its report in the worktree and let the unboxed supervisor file it.
+
+## What Hand checks before running git
 
 Hand runs git in your projects: `git fetch` and `git worktree add` to start an attempt, and `git status` and `git worktree remove` to clean one. Some settings in a project's git configuration name programs that git runs, for example `core.sshCommand`, a filter's `smudge`, a credential helper, a config-defined hook or an included file. Hand records the values of those settings when a project is registered (a project registered by an earlier version records them the first time Hand runs git in it) and refuses to run git in the project if they have changed since: it runs nothing, exits 2 and names the settings that changed. Read them with `git -C REPO config --list --show-origin`, then accept them with `hand project trust PROJECT`. `hand doctor` has a row for each project.
 
@@ -143,7 +177,7 @@ Claude Code may reach the network on its own while it answers (an authenticated 
 - **One agent typing into another.** Every pane's environment carries `LUVUS_SOCKET_PATH` and `LUVUS_API_ADDRESS`. A worker, or the supervisor, can list the fleet's panes through the Luvus socket and send keys or prompts to the others, including the one that shows a permission prompt. On the same host and account, a permission prompt is friction for a hijacked agent, not a boundary. Hand does not prevent this. Only a separate OS user or VM does.
 - **Programs git runs for you.** Hand now refuses to run git in a project whose program-naming settings changed. The check has the gaps listed under [What Hand checks before running git](#what-hand-checks-before-running-git), and it does not stop a worker that already runs as your account.
 - **A compromised worker on your own account.** Without steps 1 and 2, it has all of your account's access.
-- **Isolation between workers of one OS user**, egress control, protection of `board.token` from its own fleet's workers, and an audit log. Hand has none of these.
+- **Isolation between open workers of one OS user**, egress control, protection of `board.token` from an open worker, and an audit log. Hand has none of these. Boxed confines a worker's files and Unix sockets; it leaves the network open.
 
 ## Planned, not built
 
@@ -152,7 +186,7 @@ None of this exists yet. The operator's safe-mode study describes them. It is no
 - An opt-in permission mode per routing profile, so a worker can start in a Claude Code mode that is not bypass.
 - An approval flow in the Board: approve once, approve always or deny, with a timeout.
 - Read-only roles for review and research workers.
-- A sandbox. The study advises against a sandbox that Hand builds itself.
+- A macOS or Windows backend for boxed, network filtering, and boxing the supervisor (which needs the Luvus socket).
 
 Until then, the setup above is the only protection.
 

@@ -19,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/proc"
+	"github.com/atqamz/hand/internal/sandbox"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 	"github.com/atqamz/hand/internal/update"
@@ -209,6 +210,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	} else {
 		c.add(harness.PolicyFile, "ok", "")
 		missing := false
+		boxed := false
 		for _, name := range p.Names() {
 			switch _, warn, err := checkedBin(r, p.Profiles[name]); {
 			case err != nil:
@@ -218,6 +220,16 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 				c.add("profile "+name, "warn", warn)
 			default:
 				c.add("profile "+name, "ok", "")
+			}
+			if p.Profiles[name].AccessMode() == sandbox.Boxed {
+				boxed = true
+			}
+		}
+		if boxed {
+			if probe := sandbox.Prober(); probe.UnixSockets {
+				c.add("sandbox", "ok", "")
+			} else {
+				c.add("sandbox", "fail", "a profile asks for access boxed, but "+probe.Reason)
 			}
 		}
 		if missing {

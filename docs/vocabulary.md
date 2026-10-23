@@ -207,7 +207,7 @@ The text the supervisor gives a worker with `hand attempt start --prompt-file BR
 `aN`. One worker's run on one task. `hand attempt start` needs an `active` task with no live attempt. Hand then:
 
 1. makes a worktree at `worktrees/<fleet id>/tN-aN` in the shared folder, on the new branch `hand/<fleet id>/tN-aN`, from `--base` of the project's repository. Without `--base` Hand runs `git fetch origin` there (20 s at most) and starts from the branch `origin/HEAD` points to, else `origin/main`, else `origin/master`; a repository with no `origin`, or with none of those refs, starts from its current branch. When the start is a remote ref, unpushed local commits are not in the worktree unless `--base HEAD` is given. If the fetch fails, the worktree starts from the last fetched ref, or from the current branch when there is none, and `hand attempt start` prints a `warning:` line saying which and why. With `--continue aM` there is no new branch: the worktree checks out `aM`'s existing branch, and the new attempt records that it continues `aM`, which `hand attempt show` and the board's task page name. `aM` must belong to the same task and be ended and cleaned, and `--base` does not apply (the `worktrees/` folders are created with mode `0700`, and Hand's own git calls run no repository hooks and no `core.fsmonitor` command, so a hook a worker plants never runs inside Hand; the other settings that name a program, such as `diff.external`, a filter's `smudge`, `core.sshCommand` and config-defined hooks, are not switched off but [checked](#project-git-settings), and the real boundary is still the Safe use guidance in `docs/safe-use.md`);
-2. starts the harness there in a Luvus terminal, with the brief as its prompt.
+2. starts the harness there in a Luvus terminal, with the brief as its prompt. When the profile is `boxed`, the pane command is `hand sandbox exec`, which confines the harness (see [Access and sandbox](#access-and-sandbox)).
 
 A task keeps all its attempts. At most one is live, that is `launching` or `running`.
 
@@ -227,6 +227,14 @@ When the watcher ends an attempt, it keeps the last screen it read from that att
 The board's attempt page, `/attempt/aN`, shows what Hand recorded about the attempt: the harness, model and effort, status and reason, times, branch and worktree, the brief and the launch line (both stored as the attempt's launch command, whose last word is the brief), its reports, and every event that names it. It never shows `last_screen`.
 
 `hand attempt clean aN` removes an ended attempt's worktree and keeps its branch. It refuses uncommitted changes, and commits on no branch, tag or remote, unless `--discard` is given.
+
+### Access and sandbox
+
+A routing profile's `access` is `open` (the default) or `boxed`; `hand route list` does not show it, so read `routing.json`. A boxed profile is confined on Linux by [Landlock](https://docs.kernel.org/userspace-api/landlock.html), which needs a kernel able to deny Unix-socket connects (ABI 9). On a kernel without it, on macOS and on Windows, `hand sandbox exec` and `hand attempt start` exit 2 and run nothing; they never fall back to an unconfined launch. The supervisor is never boxed.
+
+`hand sandbox exec [--print] --worktree DIR [--harness NAME] [--access MODE] -- ARGV...` resolves a policy, applies it to itself and replaces itself with `ARGV`, so the confined harness is the pane's root process. `--print` shows the policy and runs nothing. `hand sandbox check` reports the backend, what it can enforce here, and the fix when it cannot, in the same row format as `hand doctor`, which grows a `sandbox` row only when a profile asks for boxed.
+
+The policy allows the attempt's worktree read and write, a private temporary folder, system folders, the toolchain's package caches and tool data, the harness's own login and config folders, and local git remotes that are bare repositories or registered projects; installed toolchain binaries and the project's git directory outside the parts git writes stay read-only. It denies everything else, including `~/.ssh`, `~/.config/gh`, other fleets and attempts, the Luvus session folder and Unix sockets by pathname. Abstract Unix sockets and signals are scoped to the sandbox. The environment loses `LUVUS_*`, `SSH_AUTH_SOCK`, `DBUS_*` and the tokens named in [Safe use](safe-use.md#boxed-access-linux-opt-in). The network stays open. What that does and does not protect is in [Safe use](safe-use.md#boxed-access-linux-opt-in).
 
 ### Report
 
@@ -274,7 +282,7 @@ The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<v
 
 The Luvus view of one terminal. The running supervisor and every running attempt each have a pane. Hand reads the screen and sends keys through it, and `hand attach supervisor` or `hand attach aN` opens it in your terminal.
 
-Luvus refuses keys and messages (`agent_not_ready`) to a pane it does not know as an agent, and it names an agent from the program's file name, which never matches `codex.exe` or `claude.exe`. So Hand asks Luvus for a **process scan** of the pane (`terminal.backend.processes`) before the first key or message it sends to that pane in a run, and once more, with a retry of the key, after an `agent_not_ready`. A scan that fails, or a Luvus without the method, never blocks a key that would have worked: the refusal then ends with a note that Luvus could not scan.
+Luvus refuses keys and messages (`agent_not_ready`) to a pane it does not know as an agent, and it names an agent from the program's file name, which never matches `codex.exe` or `claude.exe`. So Hand asks Luvus for a **process scan** of the pane (`terminal.backend.processes`) before the first key or message it sends to that pane in a run, and once more, with a retry of the key, after an `agent_not_ready`. A scan that fails, or a Luvus without the method, never blocks a key that would have worked: the refusal then ends with a note that Luvus could not scan. A boxed pane's command is `hand sandbox exec`, so it reads as `hand` until a scan runs; `hand attempt start` waits for that scan after creating the pane (a few seconds at most, and only when the method is advertised) and records an `attempt.guarded` event.
 
 ### Blocked screen and screen revision
 

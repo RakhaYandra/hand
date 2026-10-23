@@ -16,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+	"github.com/atqamz/hand/internal/sandbox"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -316,5 +317,33 @@ func TestDoctorOutsideAFleet(t *testing.T) {
 	}
 	if _, errOut, code := fx.h.run("doctor", "extra"); code != 2 || !strings.Contains(errOut, "doctor: want 0 argument(s)") {
 		t.Fatalf("usage: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestDoctorChecksASandboxOnlyWhenAProfileAsksForIt(t *testing.T) {
+	fx := newDoctorFixture(t)
+	holdWatchLock(t, fx.h.home)
+	path := filepath.Join(fx.h.home, "routing.json")
+	body := `{"profiles":{"safe":{"harness":"claude","model":"sonnet","effort":"low","access":"boxed"}}}`
+	fx.write(path, body)
+	old := sandbox.Prober
+	t.Cleanup(func() { sandbox.Prober = old })
+
+	sandbox.Prober = func() sandbox.Support {
+		return sandbox.Support{Backend: "landlock", ABI: 10, UnixSockets: true}
+	}
+	if rows := checkRows(t, fx.h.ok("doctor")); rows["sandbox"] != [2]string{"ok", `""`} {
+		t.Fatalf("sandbox = %q", rows["sandbox"])
+	}
+
+	sandbox.Prober = func() sandbox.Support {
+		return sandbox.Support{Backend: "none", Reason: "the kernel does not offer Landlock"}
+	}
+	out, _, code := fx.h.run("doctor")
+	if code == 0 {
+		t.Fatalf("doctor passed without Unix-socket confinement: %q", out)
+	}
+	if rows := checkRows(t, out); rows["sandbox"][0] != "fail" || !strings.Contains(rows["sandbox"][1], "kernel does not offer Landlock") {
+		t.Fatalf("sandbox = %q", rows["sandbox"])
 	}
 }
