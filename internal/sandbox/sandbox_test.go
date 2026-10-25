@@ -263,11 +263,14 @@ func TestBoxedNamesItsCaches(t *testing.T) {
 	}
 }
 
-func TestBoxedGrantsOpencodeDataOnlyToOpencode(t *testing.T) {
+func TestBoxedGrantsOpencodeFoldersOnlyToOpencode(t *testing.T) {
 	home := realPath(t, t.TempDir())
 	data := filepath.Join(home, ".local", "share", "opencode")
-	if err := os.MkdirAll(data, 0o700); err != nil {
-		t.Fatal(err)
+	state := filepath.Join(home, ".local", "state", "opencode")
+	for _, dir := range []string{data, state} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	wt := filepath.Join(home, "wt")
 	if err := os.MkdirAll(wt, 0o700); err != nil {
@@ -282,8 +285,10 @@ func TestBoxedGrantsOpencodeDataOnlyToOpencode(t *testing.T) {
 		for _, rule := range p.Rules {
 			got[rule.Path] = rule.Write
 		}
-		if write, ok := got[data]; ok != want || (ok && write != want) {
-			t.Fatalf("%s: opencode data granted = %v, want %v", harness, ok, want)
+		for _, dir := range []string{data, state} {
+			if write, ok := got[dir]; ok != want || (ok && write != want) {
+				t.Fatalf("%s: %s granted = %v, want %v", harness, dir, ok, want)
+			}
 		}
 	}
 }

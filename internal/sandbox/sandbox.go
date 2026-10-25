@@ -167,7 +167,7 @@ func Resolve(req Request) (Policy, error) {
 	add(filepath.Join(home, ".local/bin"), false)
 	add(filepath.Join(config, "git"), false)
 	add(filepath.Join(home, ".gitconfig"), false)
-	harnessDirs(req.Harness, home, config, data, cache, req.Getenv, add)
+	harnessDirs(req.Harness, home, config, data, cache, stateDir, req.Getenv, add)
 	if common, err := existing(req.GitCommon); err == nil {
 		add(common, false)
 		for _, dir := range gitWriteDirs {
@@ -197,7 +197,7 @@ func Resolve(req Request) (Policy, error) {
 	return policy, nil
 }
 
-func harnessDirs(name, home, config, data, cache string, getenv func(string) string, add func(string, bool)) {
+func harnessDirs(name, home, config, data, cache, stateDir string, getenv func(string) string, add func(string, bool)) {
 	switch name {
 	case "claude":
 		add(filepath.Join(home, ".claude"), true)
@@ -212,6 +212,7 @@ func harnessDirs(name, home, config, data, cache string, getenv func(string) str
 		add(filepath.Join(config, "opencode"), true)
 		add(filepath.Join(data, "opencode"), true)
 		add(filepath.Join(cache, "opencode"), true)
+		add(filepath.Join(stateDir, "opencode"), true)
 	case "agy":
 		add(filepath.Join(home, ".gemini"), true)
 		add(filepath.Join(config, "antigravity"), true)
