@@ -60,7 +60,7 @@ func TestSandboxPrintShowsThePolicy(t *testing.T) {
 
 func TestSandboxPrintNamesOpen(t *testing.T) {
 	h := newHarness(t)
-	out := h.ok("sandbox", "exec", "--print", "--access", "open", "--worktree", realPath(t, t.TempDir()), "--", testBinary(t))
+	out := h.ok("sandbox", "exec", "--print", "--access", "open", "--worktree", realPath(t, t.TempDir()))
 	if !strings.HasPrefix(out, "access: open\n") || !strings.Contains(out, "network: open") {
 		t.Fatalf("output = %q", out)
 	}

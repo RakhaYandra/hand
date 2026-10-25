@@ -26,8 +26,9 @@ func init() {
 
 func cmdSandboxExec(r *runner, args []string) error {
 	sep := slices.Index(args, "--")
-	if sep < 0 {
-		return usageError{"sandbox exec: give the command after --"}
+	head, argv := args, []string(nil)
+	if sep >= 0 {
+		head, argv = args[:sep], args[sep+1:]
 	}
 	fs := flags("sandbox exec")
 	printOnly := fs.Bool("print", false, "show the resolved policy and run nothing")
@@ -35,11 +36,13 @@ func cmdSandboxExec(r *runner, args []string) error {
 	worktree := fs.String("worktree", "", "worktree to confine; default: the current folder")
 	harness := fs.String("harness", "", "harness whose login and config folders are granted")
 	access := fs.String("access", "", "open (no confinement) or boxed; required")
-	if err := fs.Parse(args[:sep]); err != nil {
+	if err := fs.Parse(head); err != nil {
 		return usageError{fmt.Sprintf("sandbox exec: %v", err)}
 	}
-	argv := args[sep+1:]
-	if len(argv) == 0 {
+	if sep < 0 && !*printOnly {
+		return usageError{"sandbox exec: give the command after --"}
+	}
+	if len(argv) == 0 && !*printOnly {
 		return usageError{"sandbox exec: give a command after --"}
 	}
 	if *access == "" {
@@ -51,9 +54,13 @@ func cmdSandboxExec(r *runner, args []string) error {
 	if !sandbox.ValidMode(*access) {
 		return usageError{fmt.Sprintf("sandbox exec: --access must be one of %s", strings.Join(sandbox.Modes, ", "))}
 	}
-	bin, err := exec.LookPath(argv[0])
-	if err != nil {
-		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
+	var bin string
+	if len(argv) > 0 {
+		var err error
+		bin, err = exec.LookPath(argv[0])
+		if err != nil {
+			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
+		}
 	}
 	wt, spec, err := r.sandboxTarget(*attempt, *worktree, *harness)
 	if err != nil {
