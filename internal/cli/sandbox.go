@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -69,7 +70,7 @@ func cmdSandboxExec(r *runner, args []string) error {
 		Worktree:   wt,
 		GitCommon:  common,
 		GitPrivate: private,
-		Remotes:    gitRemotes(wt, func() []string { return sandboxProjects(r, home) }),
+		Remotes:    gitRemotes(r.ctx(), wt, common, func() []string { return sandboxProjects(r, home) }),
 		Harness:    spec,
 		Home:       home,
 		Bin:        bin,
@@ -244,8 +245,11 @@ func gitDirAt(base string) string {
 	return base
 }
 
-func gitRemotes(worktree string, projects func() []string) []string {
-	cmd := exec.Command("git", "-C", worktree, "config", "--local", "--get-regexp", `^remote\..*\.url$`)
+func gitRemotes(ctx context.Context, worktree, common string, projects func() []string) []string {
+	if common == "" || within(realPath(common), realPath(worktree)) {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "config", "--file", filepath.Join(common, "config"), "--get-regexp", `^remote\..*\.url$`)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

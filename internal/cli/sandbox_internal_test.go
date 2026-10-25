@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -125,5 +126,39 @@ func TestGitDirAtNeedsARealGitFolder(t *testing.T) {
 	}
 	if got := gitDirAt(link); got != "" {
 		t.Fatalf("a symlinked git dir got %q", got)
+	}
+}
+
+func TestGitRemotesComeFromTheTrustedCommonDir(t *testing.T) {
+	root := realPath(t.TempDir())
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("USERPROFILE", filepath.Join(root, "home"))
+	wt := filepath.Join(root, "wt")
+	common := filepath.Join(root, "repo", ".git")
+	remote := filepath.Join(root, "remote.git")
+	fake := filepath.Join(root, "fake")
+	mkdirs(t, wt, common, remote, filepath.Join(remote, "objects"), fake)
+	if err := os.WriteFile(filepath.Join(remote, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(common, "config"), []byte("[remote \"origin\"]\n\turl = "+remote+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fake, "config"), []byte("[remote \"evil\"]\n\turl = "+fake+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+fake+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := gitRemotes(context.Background(), wt, common, func() []string { return nil })
+	if len(got) != 1 || got[0] != realPath(remote) {
+		t.Fatalf("remotes = %v, want only %q", got, realPath(remote))
+	}
+	if got := gitRemotes(context.Background(), wt, "", func() []string { return nil }); got != nil {
+		t.Fatalf("an empty common dir read remotes: %v", got)
+	}
+	if got := gitRemotes(context.Background(), wt, filepath.Join(wt, ".git"), func() []string { return nil }); got != nil {
+		t.Fatalf("a common dir inside the worktree read remotes: %v", got)
 	}
 }
