@@ -43,7 +43,7 @@ func TestBoxedGrantsTheWorktreeAndNotTheHomeSecrets(t *testing.T) {
 		Worktree: wt,
 		Home:     home,
 		Getenv:   testEnv(home),
-		Environ:  []string{"PATH=/usr/bin", "LUVUS_HOME=/run/luvus", "SSH_AUTH_SOCK=/run/agent", "GH_TOKEN=t", "KEEP=1"},
+		Environ:  []string{"PATH=/usr/bin", "LUVUS_HOME=/run/luvus", "SSH_AUTH_SOCK=/run/agent", "GH_TOKEN=t", "HAND_LUVUS_BASE=https://example.test/luvus", "KEEP=1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestBoxedGrantsTheWorktreeAndNotTheHomeSecrets(t *testing.T) {
 	if got := envValue(p.Environ, "TMPDIR"); got != p.Temp {
 		t.Fatalf("TMPDIR = %q, want %q", got, p.Temp)
 	}
-	for _, name := range []string{"LUVUS_HOME", "SSH_AUTH_SOCK", "GH_TOKEN"} {
+	for _, name := range []string{"LUVUS_HOME", "HAND_LUVUS_BASE", "SSH_AUTH_SOCK", "GH_TOKEN"} {
 		if envValue(p.Environ, name) != "" {
 			t.Fatalf("%s survived the rebuild", name)
 		}
@@ -83,7 +83,7 @@ func TestBoxedGrantsTheWorktreeAndNotTheHomeSecrets(t *testing.T) {
 	if envValue(p.Environ, "KEEP") != "1" {
 		t.Fatalf("the rebuild dropped KEEP")
 	}
-	if strings.Join(p.Dropped, ",") != "GH_TOKEN,LUVUS_HOME,SSH_AUTH_SOCK" {
+	if strings.Join(p.Dropped, ",") != "GH_TOKEN,HAND_LUVUS_BASE,LUVUS_HOME,SSH_AUTH_SOCK" {
 		t.Fatalf("dropped = %v", p.Dropped)
 	}
 }
@@ -191,7 +191,7 @@ func TestBoxedKeepsToolchainBinariesReadOnly(t *testing.T) {
 		filepath.Join(home, "go", "pkg"):             true,
 		filepath.Join(home, "go", "bin"):             false,
 		filepath.Join(home, ".cargo", "registry"):    true,
-		filepath.Join(home, ".cargo", "bin"):         true,
+		filepath.Join(home, ".cargo", "bin"):         false,
 		filepath.Join(home, ".bun", "install"):       true,
 		filepath.Join(home, ".bun", "bin"):           false,
 		filepath.Join(home, ".rustup", "downloads"):  true,

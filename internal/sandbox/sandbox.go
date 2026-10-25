@@ -156,7 +156,6 @@ func Resolve(req Request) (Policy, error) {
 	add(filepath.Join(home, ".bun"), false)
 	add(filepath.Join(home, ".bun", "install"), true)
 	add(filepath.Join(home, ".cargo"), false)
-	add(filepath.Join(home, ".cargo", "bin"), true)
 	add(filepath.Join(home, ".cargo", "registry"), true)
 	add(filepath.Join(home, ".cargo", "git"), true)
 	add(filepath.Join(home, ".rustup"), false)
@@ -265,10 +264,9 @@ func existing(path string) (string, error) {
 	return real, nil
 }
 
-var envDropPrefixes = []string{"LUVUS_"}
+var envDropPrefixes = []string{"LUVUS_", "HAND_LUVUS_"}
 
 var envDropNames = map[string]bool{
-	"HAND_LUVUS_SOCKET":        true,
 	"SSH_AUTH_SOCK":            true,
 	"SSH_AGENT_PID":            true,
 	"DBUS_SESSION_BUS_ADDRESS": true,
