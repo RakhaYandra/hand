@@ -161,13 +161,50 @@ func TestInstallScriptRefusesABadChecksum(t *testing.T) {
 }
 
 func TestInstallScriptRefusesAFailedDownload(t *testing.T) {
-	failed := fakeRelease(t, "9.9.9", func(f map[string][]byte) { f["hand-linux-amd64.tar.gz"] = nil })
+	archive := "hand-linux-amd64.tar.gz"
+	failedArchive := fakeRelease(t, "9.9.9", func(f map[string][]byte) { f[archive] = nil })
+	failedSums := fakeRelease(t, "9.9.9", func(f map[string][]byte) { delete(f, "checksums.txt") })
 	cut := fakeRelease(t, "9.9.9", nil)
-	cut.cut = "hand-linux-amd64.tar.gz"
-	for name, srv := range map[string]*release{"500": failed, "closed early": cut} {
-		dir, _, _, code := runInstall(t, srv, nil, "Linux", "x86_64")
-		if code == 0 || len(installed(t, dir)) != 0 {
-			t.Fatalf("%s: code %d, installed %q", name, code, installed(t, dir))
+	cut.cut = archive
+	for name, c := range map[string]struct {
+		srv  *release
+		file string
+	}{"500": {failedArchive, archive}, "closed early": {cut, archive}, "no checksums": {failedSums, "checksums.txt"}} {
+		dir, _, errOut, code := runInstall(t, c.srv, nil, "Linux", "x86_64")
+		if want := "install.sh: download failed: " + c.srv.URL + "/latest/download/" + c.file + "\n"; code != 1 || errOut != want || len(installed(t, dir)) != 0 {
+			t.Fatalf("%s: code %d %q, installed %q", name, code, errOut, installed(t, dir))
+		}
+	}
+	dead := fakeRelease(t, "9.9.9", nil)
+	dead.Close()
+	dir, _, errOut, code := runInstall(t, dead, nil, "Linux", "x86_64")
+	if want := "install.sh: download failed: " + dead.URL + "/latest/download/" + archive + "\n"; code != 1 || errOut != want || len(installed(t, dir)) != 0 {
+		t.Fatalf("unreachable: code %d %q, installed %q", code, errOut, installed(t, dir))
+	}
+}
+
+func TestInstallScriptRefusesAnUnwritableFolder(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, dir := range map[string]string{"under a file": filepath.Join(file, "bin"), "a file": file} {
+		_, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"HAND_INSTALL_DIR": dir}, "Linux", "x86_64")
+		if code != 1 || !strings.HasPrefix(errOut, "install.sh: cannot ") || strings.Count(errOut, "\n") != 1 {
+			t.Fatalf("%s: code %d %q", name, code, errOut)
+		}
+	}
+}
+
+func TestInstallScriptPrintsOneLineWhenAToolFails(t *testing.T) {
+	for tool, want := range map[string]string{"mktemp": "install.sh: cannot create a temporary folder\n", "cp": "install.sh: cannot install "} {
+		noisy := t.TempDir()
+		if err := os.WriteFile(filepath.Join(noisy, tool), []byte("#!/bin/sh\necho '"+tool+": boom' >&2\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		dir, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"PATH": noisy + ":" + os.Getenv("PATH")}, "Linux", "x86_64")
+		if code != 1 || !strings.HasPrefix(errOut, want) || strings.Count(errOut, "\n") != 1 || len(installed(t, dir)) != 0 {
+			t.Fatalf("%s: code %d %q, installed %q", tool, code, errOut, installed(t, dir))
 		}
 	}
 }
