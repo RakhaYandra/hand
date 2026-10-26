@@ -98,7 +98,9 @@ func cmdSandboxExec(r *runner, args []string) error {
 	if err := sandbox.Apply(policy); err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	sandbox.CloseOnExec()
+	if err := sandbox.CloseOnExec(); err != nil {
+		return fmt.Errorf("%w: close descriptors above 2: %v", state.ErrInvalid, err)
+	}
 	argv[0] = bin
 	if r.env.Exec != nil {
 		return r.env.Exec(argv[0], argv, policy.Environ)

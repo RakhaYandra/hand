@@ -2,4 +2,4 @@
 
 package sandbox
 
-func CloseOnExec() {}
+func CloseOnExec() error { return nil }
