@@ -188,17 +188,17 @@ func TestBoxedKeepsToolchainBinariesReadOnly(t *testing.T) {
 	home := realPath(t, t.TempDir())
 	data := filepath.Join(home, ".local", "share")
 	dirs := map[string]bool{
-		filepath.Join(home, "go", "pkg"):             true,
-		filepath.Join(home, "go", "bin"):             false,
-		filepath.Join(home, ".cargo", "registry"):    true,
-		filepath.Join(home, ".cargo", "bin"):         false,
-		filepath.Join(home, ".bun", "install"):       true,
-		filepath.Join(home, ".bun", "bin"):           false,
-		filepath.Join(home, ".rustup", "downloads"):  true,
-		filepath.Join(home, ".rustup", "toolchains"): false,
-		filepath.Join(data, "mise", "installs"):      false,
-		filepath.Join(data, "mise", "shims"):         false,
-		filepath.Join(home, ".local", "bin"):         false,
+		filepath.Join(home, "go", "pkg"):                true,
+		filepath.Join(home, "go", "bin"):                false,
+		filepath.Join(home, ".cargo", "registry"):       true,
+		filepath.Join(home, ".cargo", "bin"):            false,
+		filepath.Join(home, ".bun", "install", "cache"): true,
+		filepath.Join(home, ".bun", "bin"):              false,
+		filepath.Join(home, ".rustup", "downloads"):     true,
+		filepath.Join(home, ".rustup", "toolchains"):    false,
+		filepath.Join(data, "mise", "installs"):         false,
+		filepath.Join(data, "mise", "shims"):            false,
+		filepath.Join(home, ".local", "bin"):            false,
 	}
 	for dir := range dirs {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -251,7 +251,7 @@ func TestBoxedNamesItsCaches(t *testing.T) {
 	for _, rule := range p.Rules {
 		got[rule.Path] = rule.Write
 	}
-	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(stateDir, "mise")} {
+	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(stateDir, "mise", "hints"), filepath.Join(stateDir, "mise", "trusted-configs")} {
 		if write, ok := got[dir]; !ok || !write {
 			t.Fatalf("%s is not granted for writing", dir)
 		}
@@ -260,6 +260,9 @@ func TestBoxedNamesItsCaches(t *testing.T) {
 		if write, ok := got[dir]; ok && write {
 			t.Fatalf("%s is granted for writing", dir)
 		}
+	}
+	if write, ok := got[filepath.Join(stateDir, "mise")]; ok && write {
+		t.Fatalf("%s is granted for writing", filepath.Join(stateDir, "mise"))
 	}
 }
 
@@ -290,5 +293,72 @@ func TestBoxedGrantsOpencodeFoldersOnlyToOpencode(t *testing.T) {
 				t.Fatalf("%s: %s granted = %v, want %v", harness, dir, ok, want)
 			}
 		}
+	}
+}
+
+func TestBoxedCreatesHarnessFoldersBeforeGrantingThem(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	wt := filepath.Join(home, "wt")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(home, ".local", "state", "opencode")
+	if _, err := os.Stat(state); !os.IsNotExist(err) {
+		t.Fatalf("state folder exists before the policy: %v", err)
+	}
+	p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: home, Harness: "opencode", Getenv: testEnv(home), Environ: []string{"PATH=/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, rule := range p.Rules {
+		got[rule.Path] = rule.Write
+	}
+	if write, ok := got[state]; !ok || !write {
+		t.Fatalf("%s granted = %v write = %v, want write", state, ok, write)
+	}
+	if fi, err := os.Stat(state); err != nil || !fi.IsDir() {
+		t.Fatalf("state folder after the policy = %v, %v", fi, err)
+	}
+}
+
+func TestBoxedNarrowsToolFolders(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	data := filepath.Join(home, ".local", "share")
+	bun := filepath.Join(home, ".bun", "install")
+	credentials := filepath.Join(home, ".cargo", "credentials.toml")
+	registry := filepath.Join(home, ".cargo", "registry")
+	for _, dir := range []string{filepath.Join(data, "pnpm"), bun, registry} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(credentials, []byte("token = secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(home, "wt")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: home, Getenv: testEnv(home), Environ: []string{"PATH=/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, rule := range p.Rules {
+		got[rule.Path] = rule.Write
+	}
+	for _, dir := range []string{filepath.Join(data, "pnpm", "store"), filepath.Join(bun, "cache"), registry} {
+		if write, ok := got[dir]; !ok || !write {
+			t.Fatalf("%s granted = %v write = %v, want write", dir, ok, write)
+		}
+	}
+	for _, dir := range []string{filepath.Join(data, "pnpm"), bun, filepath.Join(home, ".cargo")} {
+		if write, ok := got[dir]; ok && write {
+			t.Fatalf("%s is granted for writing", dir)
+		}
+	}
+	if _, ok := got[credentials]; ok {
+		t.Fatalf("%s is granted", credentials)
 	}
 }

@@ -19,6 +19,7 @@ func mkdirs(t *testing.T, paths ...string) {
 func TestLocalRemoteNeedsARepository(t *testing.T) {
 	root := realPath(t.TempDir())
 	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("USERPROFILE", filepath.Join(root, "home"))
 	worktree := filepath.Join(root, "work")
 	mkdirs(t, worktree)
 	repo := filepath.Join(root, "repo")
@@ -57,6 +58,7 @@ func TestLocalRemoteNeedsARepository(t *testing.T) {
 func TestLocalRemoteUnderHomeNeedsARegisteredProject(t *testing.T) {
 	home := realPath(t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	worktree := filepath.Join(home, "work")
 	repo := filepath.Join(home, "src", "repo")
 	mkdirs(t, worktree, filepath.Join(repo, ".git"))
@@ -69,6 +71,27 @@ func TestLocalRemoteUnderHomeNeedsARegisteredProject(t *testing.T) {
 	}
 	if got, ok := localRemote(repo, worktree, func() []string { return []string{filepath.Join(home, "src", "other")} }); ok {
 		t.Fatalf("a different registered project accepted %q", got)
+	}
+}
+
+func TestLinkedAdminDirIgnoresASymlinkedDotGit(t *testing.T) {
+	root := realPath(t.TempDir())
+	common := filepath.Join(root, "repo", ".git")
+	worktree := filepath.Join(root, "t1-a2")
+	sibling := filepath.Join(root, "t1-a3")
+	admin := filepath.Join(common, "worktrees", "t1-a3")
+	mkdirs(t, admin, worktree, sibling)
+	if err := os.WriteFile(filepath.Join(admin, "gitdir"), []byte(filepath.Join(sibling, ".git")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, ".git"), []byte("gitdir: "+admin+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(sibling, ".git"), filepath.Join(worktree, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkedAdminDir(common, worktree); got != "" {
+		t.Fatalf("a symlinked .git got %q, want nothing", got)
 	}
 }
 

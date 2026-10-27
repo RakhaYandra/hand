@@ -143,31 +143,45 @@ func Resolve(req Request) (Policy, error) {
 	for _, dir := range devicePaths {
 		add(dir, true)
 	}
-	for _, dir := range []string{"mise", "uv", "go-build", "pip", "node-gyp"} {
-		add(filepath.Join(cache, dir), true)
+	writeDir := func(path string) {
+		if path == "" {
+			return
+		}
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			return
+		}
+		add(path, true)
 	}
-	add(filepath.Join(stateDir, "mise"), true)
-	add(filepath.Join(stateDir, "uv"), true)
+	for _, dir := range []string{"mise", "uv", "go-build", "pip", "node-gyp"} {
+		writeDir(filepath.Join(cache, dir))
+	}
+	add(filepath.Join(stateDir, "mise"), false)
+	writeDir(filepath.Join(stateDir, "mise", "hints"))
+	writeDir(filepath.Join(stateDir, "mise", "incomplete-installs"))
+	writeDir(filepath.Join(stateDir, "mise", "tracked-configs"))
+	writeDir(filepath.Join(stateDir, "mise", "trusted-configs"))
+	add(filepath.Join(stateDir, "mise", "tool-purgatory.json"), true)
+	writeDir(filepath.Join(stateDir, "uv"))
 	add(filepath.Join(data, "mise"), false)
-	add(filepath.Join(data, "mise", "downloads"), true)
+	writeDir(filepath.Join(data, "mise", "downloads"))
 	add(filepath.Join(data, "uv"), false)
-	add(filepath.Join(data, "pnpm"), true)
-	add(filepath.Join(home, ".npm"), true)
+	writeDir(filepath.Join(data, "pnpm", "store"))
+	writeDir(filepath.Join(home, ".npm"))
 	add(filepath.Join(home, ".bun"), false)
-	add(filepath.Join(home, ".bun", "install"), true)
-	add(filepath.Join(home, ".cargo"), false)
-	add(filepath.Join(home, ".cargo", "registry"), true)
-	add(filepath.Join(home, ".cargo", "git"), true)
+	writeDir(filepath.Join(home, ".bun", "install", "cache"))
+	add(filepath.Join(home, ".cargo", "bin"), false)
+	writeDir(filepath.Join(home, ".cargo", "registry"))
+	writeDir(filepath.Join(home, ".cargo", "git"))
 	add(filepath.Join(home, ".rustup"), false)
-	add(filepath.Join(home, ".rustup", "downloads"), true)
-	add(filepath.Join(home, ".rustup", "tmp"), true)
-	add(filepath.Join(home, ".rustup", "update-hashes"), true)
+	writeDir(filepath.Join(home, ".rustup", "downloads"))
+	writeDir(filepath.Join(home, ".rustup", "tmp"))
+	writeDir(filepath.Join(home, ".rustup", "update-hashes"))
 	add(filepath.Join(home, "go"), false)
-	add(filepath.Join(home, "go", "pkg"), true)
+	writeDir(filepath.Join(home, "go", "pkg"))
 	add(filepath.Join(home, ".local/bin"), false)
 	add(filepath.Join(config, "git"), false)
 	add(filepath.Join(home, ".gitconfig"), false)
-	harnessDirs(req.Harness, home, config, data, cache, stateDir, req.Getenv, add)
+	harnessDirs(req.Harness, home, config, data, cache, stateDir, req.Getenv, add, writeDir)
 	if common, err := existing(req.GitCommon); err == nil {
 		add(common, false)
 		for _, dir := range gitWriteDirs {
@@ -197,25 +211,25 @@ func Resolve(req Request) (Policy, error) {
 	return policy, nil
 }
 
-func harnessDirs(name, home, config, data, cache, stateDir string, getenv func(string) string, add func(string, bool)) {
+func harnessDirs(name, home, config, data, cache, stateDir string, getenv func(string) string, add func(string, bool), writeDir func(string)) {
 	switch name {
 	case "claude":
-		add(filepath.Join(home, ".claude"), true)
+		writeDir(filepath.Join(home, ".claude"))
 		add(filepath.Join(home, ".claude.json"), true)
 	case "codex":
 		dir := getenv("CODEX_HOME")
 		if dir == "" {
 			dir = filepath.Join(home, ".codex")
 		}
-		add(dir, true)
+		writeDir(dir)
 	case "opencode":
-		add(filepath.Join(config, "opencode"), true)
-		add(filepath.Join(data, "opencode"), true)
-		add(filepath.Join(cache, "opencode"), true)
-		add(filepath.Join(stateDir, "opencode"), true)
+		writeDir(filepath.Join(config, "opencode"))
+		writeDir(filepath.Join(data, "opencode"))
+		writeDir(filepath.Join(cache, "opencode"))
+		writeDir(filepath.Join(stateDir, "opencode"))
 	case "agy":
-		add(filepath.Join(home, ".gemini"), true)
-		add(filepath.Join(config, "antigravity"), true)
+		writeDir(filepath.Join(home, ".gemini"))
+		writeDir(filepath.Join(config, "antigravity"))
 	}
 }
 

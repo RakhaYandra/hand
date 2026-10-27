@@ -215,11 +215,18 @@ func linkedAdminDir(common, worktree string) string {
 	if common == "" {
 		return ""
 	}
+	wt, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		return ""
+	}
+	dotGit := filepath.Join(wt, ".git")
+	if fi, err := os.Lstat(dotGit); err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
 	entries, err := filepath.Glob(filepath.Join(common, "worktrees", "*"))
 	if err != nil {
 		return ""
 	}
-	want := realPath(filepath.Join(worktree, ".git"))
 	for _, entry := range entries {
 		b, err := os.ReadFile(filepath.Join(entry, "gitdir"))
 		if err != nil {
@@ -229,8 +236,8 @@ func linkedAdminDir(common, worktree string) string {
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(entry, target)
 		}
-		if realPath(target) == want {
-			return realPath(entry)
+		if filepath.Clean(target) == dotGit {
+			return entry
 		}
 	}
 	return ""
