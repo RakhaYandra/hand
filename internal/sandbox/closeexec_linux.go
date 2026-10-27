@@ -9,8 +9,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var procSelfFD = "/proc/self/fd"
+
 func CloseOnExec() error {
-	dir, err := os.Open("/proc/self/fd")
+	dir, err := os.Open(procSelfFD)
 	if err != nil {
 		return err
 	}

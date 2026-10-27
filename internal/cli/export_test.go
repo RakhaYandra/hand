@@ -23,4 +23,5 @@ var (
 	PhoneProbe       = &phoneProbe
 	RemoveIfSame     = removeIfSame
 	AcceptTrust      = acceptTrust
+	CloseOnExec      = &closeOnExec
 )

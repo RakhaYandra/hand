@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -27,5 +28,14 @@ func TestCloseOnExecMarksDescriptorsAboveTwo(t *testing.T) {
 	}
 	if flags&unix.FD_CLOEXEC == 0 {
 		t.Fatal("descriptor above 2 kept across exec")
+	}
+}
+
+func TestCloseOnExecReportsAnUnreadableProc(t *testing.T) {
+	old := procSelfFD
+	defer func() { procSelfFD = old }()
+	procSelfFD = filepath.Join(t.TempDir(), "missing")
+	if err := CloseOnExec(); err == nil {
+		t.Fatal("a missing proc fd folder was accepted")
 	}
 }

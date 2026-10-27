@@ -74,6 +74,23 @@ func TestLocalRemoteUnderHomeNeedsARegisteredProject(t *testing.T) {
 	}
 }
 
+func TestLinkedAdminDirRejectsASiblingBaseName(t *testing.T) {
+	root := realPath(t.TempDir())
+	common := filepath.Join(root, "repo", ".git")
+	worktree := filepath.Join(root, "t1-a2")
+	sibling := filepath.Join(common, "worktrees", "t1-a3")
+	mkdirs(t, sibling, worktree)
+	if err := os.WriteFile(filepath.Join(sibling, "gitdir"), []byte(filepath.Join(worktree, ".git")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+sibling+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkedAdminDir(common, worktree); got != "" {
+		t.Fatalf("a sibling base name got %q, want nothing", got)
+	}
+}
+
 func TestLinkedAdminDirIgnoresASymlinkedDotGit(t *testing.T) {
 	root := realPath(t.TempDir())
 	common := filepath.Join(root, "repo", ".git")

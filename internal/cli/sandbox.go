@@ -15,6 +15,8 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
+var closeOnExec = sandbox.CloseOnExec
+
 var sandboxCommands = map[string]handler{
 	"exec":  cmdSandboxExec,
 	"check": cmdSandboxCheck,
@@ -98,7 +100,7 @@ func cmdSandboxExec(r *runner, args []string) error {
 	if err := sandbox.Apply(policy); err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	if err := sandbox.CloseOnExec(); err != nil {
+	if err := closeOnExec(); err != nil {
 		return fmt.Errorf("%w: close descriptors above 2: %v", state.ErrInvalid, err)
 	}
 	argv[0] = bin
@@ -228,6 +230,9 @@ func linkedAdminDir(common, worktree string) string {
 		return ""
 	}
 	for _, entry := range entries {
+		if filepath.Base(entry) != filepath.Base(wt) {
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join(entry, "gitdir"))
 		if err != nil {
 			continue

@@ -1,12 +1,14 @@
 package cli_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/sandbox"
 )
 
@@ -130,6 +132,19 @@ func TestSandboxBoxedNeedsASupportedBackend(t *testing.T) {
 		t.Fatalf("print = %q", out)
 	}
 	if _, errOut, code := h.run("sandbox", "exec", "--access", "boxed", "--worktree", wt, "--", testBinary(t)); code != 2 || !strings.Contains(errOut, "boxed is unavailable") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if len(h.exec) != 0 {
+		t.Fatalf("exec = %v", h.exec)
+	}
+}
+
+func TestSandboxExecStopsWhenDescriptorsCannotBeClosed(t *testing.T) {
+	h := newHarness(t)
+	old := *cli.CloseOnExec
+	t.Cleanup(func() { *cli.CloseOnExec = old })
+	*cli.CloseOnExec = func() error { return errors.New("no /proc/self/fd") }
+	if _, errOut, code := h.run("sandbox", "exec", "--access", "open", "--worktree", t.TempDir(), "--", testBinary(t)); code != 2 || !strings.Contains(errOut, "close descriptors above 2") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if len(h.exec) != 0 {

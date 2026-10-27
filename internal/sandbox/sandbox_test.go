@@ -234,7 +234,7 @@ func TestBoxedNamesItsCaches(t *testing.T) {
 	home := realPath(t, t.TempDir())
 	cache := filepath.Join(home, ".cache")
 	stateDir := filepath.Join(home, ".local", "state")
-	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(cache, "other"), filepath.Join(stateDir, "mise"), filepath.Join(stateDir, "other")} {
+	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(cache, "other"), filepath.Join(stateDir, "mise"), filepath.Join(stateDir, "mise", "trusted-configs"), filepath.Join(stateDir, "mise", "tracked-configs"), filepath.Join(stateDir, "other")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -251,7 +251,7 @@ func TestBoxedNamesItsCaches(t *testing.T) {
 	for _, rule := range p.Rules {
 		got[rule.Path] = rule.Write
 	}
-	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(stateDir, "mise", "hints"), filepath.Join(stateDir, "mise", "trusted-configs")} {
+	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(stateDir, "mise", "hints"), filepath.Join(stateDir, "mise", "incomplete-installs")} {
 		if write, ok := got[dir]; !ok || !write {
 			t.Fatalf("%s is not granted for writing", dir)
 		}
@@ -261,8 +261,10 @@ func TestBoxedNamesItsCaches(t *testing.T) {
 			t.Fatalf("%s is granted for writing", dir)
 		}
 	}
-	if write, ok := got[filepath.Join(stateDir, "mise")]; ok && write {
-		t.Fatalf("%s is granted for writing", filepath.Join(stateDir, "mise"))
+	for _, dir := range []string{filepath.Join(stateDir, "mise"), filepath.Join(stateDir, "mise", "trusted-configs"), filepath.Join(stateDir, "mise", "tracked-configs")} {
+		if write, ok := got[dir]; ok && write {
+			t.Fatalf("%s is granted for writing", dir)
+		}
 	}
 }
 
@@ -327,14 +329,17 @@ func TestBoxedNarrowsToolFolders(t *testing.T) {
 	data := filepath.Join(home, ".local", "share")
 	bun := filepath.Join(home, ".bun", "install")
 	credentials := filepath.Join(home, ".cargo", "credentials.toml")
+	config := filepath.Join(home, ".cargo", "config.toml")
 	registry := filepath.Join(home, ".cargo", "registry")
 	for _, dir := range []string{filepath.Join(data, "pnpm"), bun, registry} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(credentials, []byte("token = secret\n"), 0o600); err != nil {
-		t.Fatal(err)
+	for path, body := range map[string]string{credentials: "token = secret\n", config: "[build]\ntarget-dir = \"/tmp\"\n"} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	wt := filepath.Join(home, "wt")
 	if err := os.MkdirAll(wt, 0o700); err != nil {
@@ -358,7 +363,62 @@ func TestBoxedNarrowsToolFolders(t *testing.T) {
 			t.Fatalf("%s is granted for writing", dir)
 		}
 	}
+	for _, path := range []string{filepath.Join(data, "pnpm"), config} {
+		if write, ok := got[path]; !ok || write {
+			t.Fatalf("%s granted = %v write = %v, want read-only", path, ok, write)
+		}
+	}
 	if _, ok := got[credentials]; ok {
 		t.Fatalf("%s is granted", credentials)
+	}
+}
+
+func TestBoxedGrantsNoHomeRulesWithoutHOME(t *testing.T) {
+	root := realPath(t, t.TempDir())
+	wt := filepath.Join(root, "wt")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	empty := func(string) string { return "" }
+	p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: filepath.Join(root, "fleet"), Harness: "opencode", Getenv: empty, Environ: []string{"PATH=/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range p.Rules {
+		if rule.Path == ".cache" || rule.Path == ".config" || rule.Path == ".local" || strings.HasPrefix(rule.Path, "mise") {
+			t.Fatalf("a relative home rule was granted: %s", rule.Path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "fleet", "tmp")); err != nil {
+		t.Fatalf("private temp = %v", err)
+	}
+}
+
+func TestBoxedLeavesTheFleetHomeAlone(t *testing.T) {
+	root := realPath(t, t.TempDir())
+	home := filepath.Join(root, "home")
+	fleet := filepath.Join(root, "fleet")
+	wt := filepath.Join(fleet, "worktrees", "fleet", "t1-a2")
+	for _, dir := range []string{wt, filepath.Join(fleet, "memory"), filepath.Join(home, ".cache")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range []string{filepath.Join(fleet, "hand.db"), filepath.Join(fleet, "hand.db-wal"), filepath.Join(fleet, "hand.db-shm"), filepath.Join(fleet, "hand.db.lock"), filepath.Join(fleet, "board.token"), filepath.Join(fleet, "memory", "notes.md")} {
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: fleet, Getenv: testEnv(home), Environ: []string{"PATH=/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range p.Rules {
+		if rule.Path == fleet || strings.HasPrefix(rule.Path, fleet+string(filepath.Separator)) {
+			if rule.Path == p.Temp || rule.Path == wt {
+				continue
+			}
+			t.Fatalf("the policy grants %s", rule.Path)
+		}
 	}
 }
