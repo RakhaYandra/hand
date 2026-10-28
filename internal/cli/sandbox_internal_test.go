@@ -74,6 +74,27 @@ func TestLocalRemoteUnderHomeNeedsARegisteredProject(t *testing.T) {
 	}
 }
 
+func TestLinkedAdminDirAcceptsADigitSuffix(t *testing.T) {
+	root := realPath(t.TempDir())
+	common := filepath.Join(root, "repo", ".git")
+	worktree := filepath.Join(root, "t1-a1")
+	first := filepath.Join(common, "worktrees", "t1-a1")
+	second := filepath.Join(common, "worktrees", "t1-a11")
+	mkdirs(t, first, second, worktree)
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+second+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, "gitdir"), []byte(filepath.Join(worktree, ".git")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first, "gitdir"), []byte(filepath.Join(root, "t1-a2", ".git")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkedAdminDir(common, worktree); got != second {
+		t.Fatalf("the digit-suffixed entry = %q, want %q", got, second)
+	}
+}
+
 func TestLinkedAdminDirRejectsASiblingBaseName(t *testing.T) {
 	root := realPath(t.TempDir())
 	common := filepath.Join(root, "repo", ".git")

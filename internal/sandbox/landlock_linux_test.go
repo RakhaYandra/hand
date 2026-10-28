@@ -62,8 +62,15 @@ func TestBoxedDeniesWhatLiesOutsideThePolicy(t *testing.T) {
 		}
 	}()
 	cmd := exec.Command(os.Args[0], "-test.run=TestSandboxHelper")
-	cmd.Env = append(os.Environ(),
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "HOME=") {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = append(env,
 		"SANDBOX_HELPER=1",
+		"HOME="+t.TempDir(),
 		"SANDBOX_HOME="+home,
 		"SANDBOX_WT="+wt,
 		"SANDBOX_DECOY="+decoy,

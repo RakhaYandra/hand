@@ -196,6 +196,7 @@ func TestBoxedKeepsToolchainBinariesReadOnly(t *testing.T) {
 		filepath.Join(home, ".bun", "bin"):              false,
 		filepath.Join(home, ".rustup", "downloads"):     true,
 		filepath.Join(home, ".rustup", "toolchains"):    false,
+		filepath.Join(data, "mise"):                     false,
 		filepath.Join(data, "mise", "installs"):         false,
 		filepath.Join(data, "mise", "shims"):            false,
 		filepath.Join(home, ".local", "bin"):            false,
@@ -368,26 +369,41 @@ func TestBoxedNarrowsToolFolders(t *testing.T) {
 			t.Fatalf("%s granted = %v write = %v, want read-only", path, ok, write)
 		}
 	}
-	if _, ok := got[credentials]; ok {
-		t.Fatalf("%s is granted", credentials)
+	for path := range got {
+		if covers(path, credentials) {
+			t.Fatalf("%s covers %s", path, credentials)
+		}
 	}
+}
+
+func covers(rule, path string) bool {
+	return rule == path || strings.HasPrefix(path, rule+string(filepath.Separator))
 }
 
 func TestBoxedGrantsNoHomeRulesWithoutHOME(t *testing.T) {
 	root := realPath(t, t.TempDir())
 	wt := filepath.Join(root, "wt")
-	if err := os.MkdirAll(wt, 0o700); err != nil {
+	cwd := filepath.Join(root, "cwd")
+	for _, dir := range []string{wt, cwd} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(cwd)
+	empty := func(string) string { return "" }
+	if _, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: filepath.Join(root, "fleet"), Harness: "opencode", Getenv: empty, Environ: []string{"PATH=/usr/bin"}}); err != nil {
 		t.Fatal(err)
 	}
-	empty := func(string) string { return "" }
-	p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: filepath.Join(root, "fleet"), Harness: "opencode", Getenv: empty, Environ: []string{"PATH=/usr/bin"}})
+	entries, err := os.ReadDir(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rule := range p.Rules {
-		if rule.Path == ".cache" || rule.Path == ".config" || rule.Path == ".local" || strings.HasPrefix(rule.Path, "mise") {
-			t.Fatalf("a relative home rule was granted: %s", rule.Path)
+	if len(entries) != 0 {
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
 		}
+		t.Fatalf("resolving without HOME created %v in the working directory", names)
 	}
 	if _, err := os.Stat(filepath.Join(root, "fleet", "tmp")); err != nil {
 		t.Fatalf("private temp = %v", err)

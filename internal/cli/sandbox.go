@@ -230,7 +230,8 @@ func linkedAdminDir(common, worktree string) string {
 		return ""
 	}
 	for _, entry := range entries {
-		if filepath.Base(entry) != filepath.Base(wt) {
+		suffix, ok := strings.CutPrefix(filepath.Base(entry), filepath.Base(wt))
+		if !ok || strings.Trim(suffix, "0123456789") != "" {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(entry, "gitdir"))
