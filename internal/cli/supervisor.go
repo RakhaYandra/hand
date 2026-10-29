@@ -75,7 +75,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 			if !ok {
 				return usageError{"supervisor start: there is no earlier supervisor to copy; give --harness, --model and --effort, or --profile"}
 			}
-			spec = harness.Spec{Harness: last.Harness, Model: last.Model, Effort: last.Effort}
+			spec = lastSpec(last)
 		}
 		sup, err := r.startSupervisor(ctx, st, c, last, spec, "")
 		if err != nil {
@@ -199,11 +199,18 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 		}
 		return state.Supervisor{}, fmt.Errorf("%w: supervisor %s has no known session to resume; start a new one: `hand supervisor start`", state.ErrConflict, state.SupervisorRef(last.ID))
 	}
-	spec := harness.Spec{Harness: last.Harness, Model: last.Model, Effort: last.Effort}
+	spec := lastSpec(last)
 	if last.Switching() {
 		spec.Model, spec.Effort = last.SwitchModel, last.SwitchEffort
 	}
 	return r.relaunch(ctx, st, c, last, spec)
+}
+
+func lastSpec(last state.Supervisor) harness.Spec {
+	if last.Harness == "opencode" {
+		return harness.Spec{Harness: last.Harness}
+	}
+	return harness.Spec{Harness: last.Harness, Model: last.Model, Effort: last.Effort}
 }
 
 func lastStarted(ctx context.Context, st *state.Store) (state.Supervisor, bool, error) {
@@ -739,7 +746,7 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 	case "opencode":
 		var bin string
 		if bin, err = harness.LookPath("opencode", r.env.Getenv("PATH")); err == nil {
-			id, err = harness.OpencodeSession(bin, dir, since, marker)
+			id, err = harness.OpencodeSession(ctx, bin, dir, since, marker)
 		}
 	case "agy":
 		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")

@@ -27,11 +27,14 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 	case !stamp.IsZero() && stamp.Equal(s.stamp):
 		return nil
 	}
-	out, err := harness.Opencode(r.Paths.Opencode, dir, "session", "export", "--standalone", id)
+	out, err := harness.Opencode(ctx, r.Paths.Opencode, dir, "session", "export", "--standalone", id)
 	if err != nil {
 		return err
 	}
 	var export struct {
+		Info struct {
+			Model *exportModel `json:"model"`
+		} `json:"info"`
 		Messages []exportMessage `json:"messages"`
 	}
 	if json.Unmarshal(out, &export) != nil || export.Messages == nil {
@@ -53,6 +56,9 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 				fresh.status.Compactions++
 			}
 		}
+		if (role == "assistant" || role == "model-switched") && m.Model != nil && m.Model.ID != "" {
+			fresh.status.Model, fresh.status.Effort = m.Model.label()
+		}
 		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil && t.Input+t.Cache.Read+t.Cache.Write > 0 {
 			fresh.status.Context = t.Input + t.Cache.Read + t.Cache.Write
 		}
@@ -69,8 +75,69 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 			}
 		}
 	}
+	if fresh.status.Model == "" && export.Info.Model != nil {
+		fresh.status.Model, fresh.status.Effort = export.Info.Model.label()
+	}
 	*s = fresh
 	return nil
+}
+
+type exportModel struct {
+	ID         string `json:"id"`
+	ProviderID string `json:"providerID"`
+	Variant    string `json:"variant"`
+}
+
+func (m *exportModel) UnmarshalJSON(b []byte) error {
+	type plain exportModel
+	var p plain
+	if json.Unmarshal(b, &p) == nil {
+		*m = exportModel(p)
+	}
+	return nil
+}
+
+type ModelLabel struct{ Model, Effort string }
+
+func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel, error) {
+	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "GET", "/api/session?limit=1000")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Data []struct {
+			ID    string       `json:"id"`
+			Model *exportModel `json:"model"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(out, &list) != nil || list.Data == nil {
+		return nil, ErrUnreadable
+	}
+	models := make(map[string]ModelLabel, len(list.Data))
+	for _, s := range list.Data {
+		if s.ID == "" {
+			continue
+		}
+		var l ModelLabel
+		if s.Model != nil {
+			l.Model, l.Effort = s.Model.label()
+		}
+		models[s.ID] = l
+	}
+	return models, nil
+}
+
+func (m exportModel) label() (model, effort string) {
+	if m.ID == "" {
+		return "", ""
+	}
+	if m.Variant != "default" {
+		effort = m.Variant
+	}
+	if m.ProviderID == "" {
+		return m.ID, effort
+	}
+	return m.ProviderID + "/" + m.ID, effort
 }
 
 type exportPart struct {
@@ -88,6 +155,7 @@ type exportMessage struct {
 	Finish  string        `json:"finish"`
 	Time    exportStamp   `json:"time"`
 	Tokens  *exportTokens `json:"tokens"`
+	Model   *exportModel  `json:"model"`
 	Content []exportPart  `json:"content"`
 	Info    struct {
 		Role   string        `json:"role"`
