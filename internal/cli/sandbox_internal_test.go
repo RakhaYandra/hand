@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,23 @@ func TestLinkedAdminDirAcceptsADigitSuffix(t *testing.T) {
 	}
 	if got := linkedAdminDir(common, worktree); got != second {
 		t.Fatalf("the digit-suffixed entry = %q, want %q", got, second)
+	}
+}
+
+func TestLinkedAdminDirRejectsANonDigitSuffix(t *testing.T) {
+	root := realPath(t.TempDir())
+	common := filepath.Join(root, "repo", ".git")
+	worktree := filepath.Join(root, "t1-a1")
+	entry := filepath.Join(common, "worktrees", "t1-a1x")
+	mkdirs(t, entry, worktree)
+	if err := os.WriteFile(filepath.Join(entry, "gitdir"), []byte(filepath.Join(worktree, ".git")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+entry+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkedAdminDir(common, worktree); got != "" {
+		t.Fatalf("a non-digit suffix got %q, want nothing", got)
 	}
 }
 
@@ -202,10 +220,10 @@ func TestGitRemotesComeFromTheTrustedCommonDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(remote, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(common, "config"), []byte("[remote \"origin\"]\n\turl = "+remote+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(common, "config"), []byte("[remote \"origin\"]\n\turl = "+strings.ReplaceAll(remote, `\`, `\\`)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(fake, "config"), []byte("[remote \"evil\"]\n\turl = "+fake+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(fake, "config"), []byte("[remote \"evil\"]\n\turl = "+strings.ReplaceAll(fake, `\`, `\\`)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+fake+"\n"), 0o600); err != nil {
