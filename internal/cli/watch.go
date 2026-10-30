@@ -63,6 +63,10 @@ type watcher struct {
 	opencodeSessions map[int64]string
 	opencodeRead     map[string]bool
 	opencodeSup      string
+	busy             map[string]bool
+	heldAt           map[int64]time.Time
+	busyNow          chan busyList
+	busyMisses       int
 	modelsSaid       map[string]string
 	saying           sync.Mutex
 }
@@ -113,7 +117,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	r.screens = &screenLog{m: map[int64]string{}}
-	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
+	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1)}
 	if w.asked, err = st.LastEventSeq(ctx); err != nil {
 		return err
 	}
@@ -184,11 +188,15 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		}
 	}()
-	w.seen = map[int64]string{}
+	carried := map[int64]bool{}
+	for id, seen := range w.seen {
+		carried[id] = seen == "held"
+	}
+	w.seen, w.heldAt = map[int64]string{}, map[int64]time.Time{}
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
-	if err := w.catchUp(sctx, c, caps); err != nil {
+	if err := w.catchUp(sctx, c, caps, carried); err != nil {
 		return err
 	}
 	w.autoresume(sctx, c, caps)
@@ -229,6 +237,8 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
+		case b := <-w.busyNow:
+			err = w.held(sctx, c, caps, b)
 		}
 		if err != nil {
 			return err
@@ -482,7 +492,7 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 	return nil
 }
 
-func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabilities, carried map[int64]bool) error {
 	live, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err
@@ -501,15 +511,23 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
+		case carried[a.ID]:
 		case (last == "attempt.quiet" || last == "attempt.idle" || last == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
-		case last == "attempt.blocked":
+		case last == "attempt.blocked" && (ag.Status != "working" || harness.Prefills(a.Harness)):
 			prev = "blocked"
-		case last == "attempt.long", last == "attempt.working":
+		case last == "attempt.long", last == "attempt.working", last == "attempt.blocked":
 		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
+			if a.Harness == "opencode" && argvSession(a.Argv) != "" {
+				prev = "idle?"
+			}
 		}
 		w.seen[a.ID] = prev
+		if prev == "idle?" {
+			w.heldAt[a.ID] = w.r.env.Now()
+			continue
+		}
 		if ag.Status == "working" && w.turns[a.ID] == nil {
 			since, long, err := w.st.TurnStart(ctx, a.ID)
 			if err != nil {
@@ -533,7 +551,7 @@ func (w *watcher) unblock(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		return err
 	}
 	for _, a := range live {
-		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.seen[a.ID] == "blocked" {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.seen[a.ID] == "blocked" || !harness.Prefills(a.Harness) {
 			continue
 		}
 		last, err := w.st.LastAttemptEvent(ctx, a.ID)
@@ -583,13 +601,17 @@ func (w *watcher) longTurns(ctx context.Context) error {
 }
 
 func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, status string) error {
+	prev := w.seen[a.ID]
+	if prev == "held" && (status == "done" || status == "idle") {
+		return nil
+	}
+	t := w.turns[a.ID]
 	switch {
 	case status != "working":
 		delete(w.turns, a.ID)
-	case w.turns[a.ID] == nil:
+	case t == nil:
 		w.turns[a.ID] = &turn{since: w.r.env.Now()}
 	}
-	prev := w.seen[a.ID]
 	if status == "working" && prev != "blocked" && harness.Prefills(a.Harness) {
 		last, err := w.st.LastAttemptEvent(ctx, a.ID)
 		if err != nil {
@@ -603,6 +625,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		return nil
 	}
 	w.seen[a.ID] = status
+	delete(w.heldAt, a.ID)
 	ref := state.AttemptRef(a.ID)
 	switch status {
 	case "working":
@@ -626,6 +649,21 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.alert(ctx, "attempt.blocked", ref, ref+" blocked: "+detail)
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
+			return nil
+		}
+		if session := argvSession(a.Argv); a.Harness == "opencode" && session != "" && (w.busy == nil || w.busy[session]) {
+			if t == nil {
+				since, long, err := w.st.TurnStart(ctx, a.ID)
+				if err != nil {
+					return err
+				}
+				if since.IsZero() {
+					since = w.r.env.Now()
+				}
+				t = &turn{since: since, long: long}
+			}
+			w.turns[a.ID] = t
+			w.hold(ctx, a)
 			return nil
 		}
 		s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)
