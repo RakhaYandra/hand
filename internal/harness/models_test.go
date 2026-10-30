@@ -406,7 +406,7 @@ func TestCodexColdStartReadsItsOwnCacheWithoutRunningAnything(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.vars["CODEX_HOME"], "models_cache.json"), []byte(cache), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Models("codex", f.env)
+	got, err := Detected("codex", f.env)
 	if err != nil || len(got) != 2 || got[0].Name != "gpt-6-luna" || got[0].Source != SourceDiscovered {
 		t.Fatalf("models = %+v, %v", got, err)
 	}
@@ -429,9 +429,6 @@ func TestOpencodeListsNamesWithStandaloneOnly(t *testing.T) {
 		t.Fatalf("args = %q", b)
 	}
 	noSecret(t, "opencode cache", f.cacheFile("opencode"))
-	if got, err := Models("opencode", f.env); err != nil || got != nil {
-		t.Fatalf("opencode offers no model until one can be applied: %+v, %v", got, err)
-	}
 	if got, err := Detected("opencode", f.env); err != nil || len(got) != 3 {
 		t.Fatalf("detected = %+v, %v", got, err)
 	}
@@ -924,7 +921,6 @@ func TestReadsNeverRunAHarness(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
-		_, _ = Models(name, f.env)
 		_, _ = Detected(name, f.env)
 		StatusOf(name, f.env, f.clock())
 		Vanished(Spec{Harness: name, Model: "x"}, f.env, f.clock())
@@ -936,15 +932,14 @@ func TestReadsNeverRunAHarness(t *testing.T) {
 
 func TestColdStartAndUnknownHarness(t *testing.T) {
 	env := seeded(t)
-	claude, err := Models("claude", env)
+	claude, err := Detected("claude", env)
 	if err != nil || len(claude) != 4 || claude[0].Name != "opus" || claude[0].Source != SourceBuiltin || !slices.Equal(claude[3].Efforts, claudeEfforts) {
 		t.Fatalf("claude = %+v, %v", claude, err)
 	}
-	if _, err := Models("agy", env); err == nil || !strings.Contains(err.Error(), "no model list yet; run `hand models --refresh agy`") {
+	if _, err := Detected("agy", env); err == nil || !strings.Contains(err.Error(), "no model list yet; run `hand models --refresh agy`") {
 		t.Fatalf("agy = %v", err)
 	}
 	for _, call := range []func() error{
-		func() error { _, err := Models("gemini", env); return err },
 		func() error { _, err := Detected("gemini", env); return err },
 		func() error { _, err := Refresh(context.Background(), "gemini", env, Options{}); return err },
 	} {
@@ -976,9 +971,24 @@ func TestChildEnvironmentKeepsOnlyPathHomesAndTheHarnessesOwn(t *testing.T) {
 	}
 }
 
+func TestOpencodeListingKeepsIdsThatNeedMoreThanATokenAndNothingElse(t *testing.T) {
+	var in []Model
+	for _, n := range []string{"local/has space", `local/q"uote`, "local/üni-ç", "my.prov@x/id", "no-slash", "/id", "local/", "local/a#b", "local/a\x01b", " local/x", strings.Repeat("p", 100) + "/" + strings.Repeat("m", 100)} {
+		in = append(in, Model{Name: n})
+	}
+	out := names(tidy("opencode", in))
+	want := []string{"local/has space", `local/q"uote`, "local/üni-ç", "my.prov@x/id"}
+	if !slices.Equal(out, want) {
+		t.Fatalf("tidy = %q, want %q", out, want)
+	}
+	if got := names(tidy("claude", []Model{{Name: "local/has space"}, {Name: "local/üni-ç"}, {Name: "a/b"}})); !slices.Equal(got, []string{"a/b"}) {
+		t.Fatalf("claude tidy = %q", got)
+	}
+}
+
 func TestListingTextIsCleanedBeforeItIsCached(t *testing.T) {
 	long := strings.Repeat("é", 300)
-	out := tidy([]Model{
+	out := tidy("claude", []Model{
 		{Name: "ok", Label: "a\x1b[31mb\nc\td" + long, Efforts: []string{"low", "bad effort", "low", "high"}, Source: SourceDiscovered},
 		{Name: "ok", Source: SourceDiscovered},
 		{Name: "-flag"},

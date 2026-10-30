@@ -28,7 +28,7 @@ var opencodeLister = lister{
 		}
 		var models []Model
 		for _, line := range strings.Split(string(out), "\n") {
-			if name := strings.TrimSpace(line); modelToken.MatchString(name) {
+			if name := strings.TrimSpace(line); validModel("opencode", name) {
 				models = append(models, Model{Name: name, Source: SourceDiscovered})
 			}
 		}
