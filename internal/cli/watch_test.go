@@ -315,6 +315,75 @@ func TestWatchIgnoresAnIdlePaneBeforeTheWorkerWorks(t *testing.T) {
 	}
 }
 
+func TestOrientStopsShowingBlockedOnceTheWorkerWorksAgain(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return strings.Contains(fx.h.ok("orient"), "a1 running blocked: Do you want to proceed?") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	eventually(t, func() bool { return !strings.Contains(fx.h.ok("orient"), "running blocked") })
+	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running,") {
+		t.Fatalf("orient = %q", out)
+	}
+}
+
+func TestOrientStopsShowingABlockNotedAtLaunchOnceTheWatcherSeesWork(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
+	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	time.Sleep(500 * time.Millisecond)
+	if err := openStore(t, fx.h).NoteAttempt(context.Background(), 1, "blocked", "briefing not submitted; press Enter"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return !strings.Contains(fx.h.ok("orient"), "running blocked") })
+	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running,") {
+		t.Fatalf("orient = %q", out)
+	}
+}
+
+func TestACopilotLaunchNoteStaysUntilTheTurnEnds(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.startCopilot()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	time.Sleep(500 * time.Millisecond)
+	note := `copilot does not have model "x" and runs on auto instead; check the screen`
+	if err := openStore(t, fx.h).NoteAttempt(context.Background(), 1, "blocked", note); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running blocked: ") {
+		t.Fatalf("orient = %q", out)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "copilot"})
+	eventually(t, func() bool { return !strings.Contains(fx.h.ok("orient"), "running blocked") })
+}
+
+func TestWatchCatchesUpOnATurnThatEndedAfterABlockWasCleared(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	eventually(t, func() bool { return !strings.Contains(fx.h.ok("orient"), "running blocked") })
+	stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop = startWatch(t, fx)
+	defer stop()
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
 func TestWatchCatchesUpOnATurnThatEndedWhileItWasDown(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()

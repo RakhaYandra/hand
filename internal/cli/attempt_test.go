@@ -166,10 +166,140 @@ func TestAttemptStartRejectsBadRoutingBeforeTouchingGit(t *testing.T) {
 	}
 }
 
-const opencodeScreen = "┃  Fix the login bug, commit, then stop.\n┃  When you finish, report to Hand from inside this worktree:"
+const opencodeScreen = "\n  ┃  Fix the login bug, commit, then stop.\n  ┃  When you finish, report to Hand from inside this worktree:\n  " + opencodeBar + "\n"
 
 func hasOpencodeID(id string) bool {
 	return regexp.MustCompile(`^ses_hand[0-9a-f]{26}$`).MatchString(id)
+}
+
+const opencodeBar = "╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+
+const opencodeBrief = "  ┃\n  ┃  Fix the login bug, commit, then stop.\n  ┃\n  ┃  ---\n  ┃  When you finish, report to Hand from inside this worktree, passing the\n  ┃  report on stdin so no file is left in it:\n  ┃  hand report add --status done --file - <<EOF\n  ┃  YOUR REPORT\n  ┃  EOF\n  ┃\n"
+
+const opencodeWorking80x24 = " ⠧ New session                                                                 +\n  ┃  YOUR REPORT\n  ┃  HAND_REPORT_KD2YGIYM\n  ┃  Use --status stuck instead if you cannot continue, or --status progress\n  ┃  for a milestone. Say what changed and list any commits. End with one line\n  ┃  `Delivered: <link or absolute path>` for each thing you delivered: a PR,\n  ┃  a merge request, a document, a file. Hand reads your report, not your\n  ┃  terminal.\n  ┃  Wait for CI, a review or any slow check inside one blocking foreground\n  ┃  command, for example `gh pr checks URL --watch` or an `until ...; do\n  ┃  sleep 30; done` loop in a single shell call. Keep each call under the\n  ┃  longest tool timeout of your harness (about 9 minutes) and issue it again\n  ┃  until the wait is done. Never end your turn to wait and never wait in a\n  ┃  background shell, because ending a turn wakes the supervisor. Apart from\n  ┃  a milestone, write a report only when the work is done or you are stuck.\n  ┃\n\n  ┃\n  ┃\n  ┃\n  ┃  Build auto · Model Two Local Fake\n  " + opencodeBar + "\n   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt                    shift+tab agents  ctrl+p commands\n\n"
+
+const opencodeDone80x24 = " • PONG                                                                         +\n  ┃  `Delivered: <link or absolute path>` for each thing you delivered: a PR,\n  ┃  a merge request, a document, a file. Hand reads your report, not your\n  ┃  terminal.\n  ┃  Wait for CI, a review or any slow check inside one blocking foreground\n  ┃  command, for example `gh pr checks URL --watch` or an `until ...; do\n  ┃  sleep 30; done` loop in a single shell call. Keep each call under the\n  ┃  longest tool timeout of your harness (about 9 minutes) and issue it again\n  ┃  until the wait is done. Never end your turn to wait and never wait in a\n  ┃  background shell, because ending a turn wakes the supervisor. Apart from\n  ┃  a milestone, write a report only when the work is done or you are stuck.\n  ┃\n\n     PONG\n\n     Build · Model Two · 15.1s · 0.1 tok/s\n\n  ┃\n  ┃\n  ┃\n  ┃  Build auto · Model Two Local Fake\n  " + opencodeBar + "\n  /tmp/proj:master                       7 (0%)  ctrl+p commands\n\n"
+
+const opencodeUnsentScreen = " New session                   +\n\n\n\n\n\n\n\n\n" + opencodeBrief + "  ┃  Build auto · x (unavailable) nope\n  " + opencodeBar + "\n  /tmp/proj:master                              shift+tab agents  ctrl+p commands\n"
+
+func (fx *attemptFixture) opencodeSession(params map[string]string) {
+	fx.h.t.Helper()
+	params["on --version"], params["on models"] = "fake 1.0\n", ""
+	fakebin.Install(fx.h.t, fx.h.vars["PATH"], "opencode", "ocsession", params)
+}
+
+func startOpencode(fx *attemptFixture, wait time.Duration) (string, string, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	return fx.h.runCtx(ctx, "attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+}
+
+func TestOpencodeThatSubmitsItsOwnPromptIsSubmitted(t *testing.T) {
+	for name, c := range map[string]struct{ screen, status string }{
+		"working, footer scrolled off": {opencodeWorking80x24, "working"},
+		"done, footer scrolled off":    {opencodeDone80x24, "done"},
+		"dialog bar above the box":     {"  ┃  Free limit reached\n  " + opencodeBar + "\n" + opencodeWorking80x24, "working"},
+	} {
+		fx := newAttemptFixture(t)
+		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = c.screen, c.status })
+		out, errOut, code := startOpencode(fx, 5*time.Second)
+		if code != 0 || !strings.Contains(out, "prompt: submitted") || strings.Contains(out, "Press Enter") || len(fx.rt.keysSent()) != 0 {
+			t.Fatalf("%s: code=%d out=%q stderr=%q keys=%q", name, code, out, errOut, fx.rt.keysSent())
+		}
+		if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+			t.Fatalf("%s: wait = %q", name, woke)
+		}
+		if orient := fx.h.ok("orient"); strings.Contains(orient, "blocked") {
+			t.Fatalf("%s: orient = %q", name, orient)
+		}
+	}
+}
+
+func TestOpencodeSessionWithAUserMessageIsSubmittedWhateverTheScreenShows(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.opencodeSession(map[string]string{"messages": "model-switched,user,assistant"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeUnsentScreen, "working" })
+	out, errOut, code := startOpencode(fx, 5*time.Second)
+	if code != 0 || !strings.Contains(out, "prompt: submitted") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+}
+
+func TestOpencodeSessionWithoutAUserMessageFallsBackToTheScreen(t *testing.T) {
+	for name, params := range map[string]map[string]string{
+		"no user message": {"messages": "model-switched,assistant,idle"},
+		"unexpected":      {"body": `{"error":"nope"}`},
+		"not json":        {"body": "oops"},
+	} {
+		fx := newAttemptFixture(t)
+		fx.opencodeSession(params)
+		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
+		out, errOut, code := startOpencode(fx, 5*time.Second)
+		if code != 0 || !strings.Contains(out, "prompt: submitted") || len(fx.rt.keysSent()) != 0 {
+			t.Fatalf("%s: code=%d out=%q stderr=%q keys=%q", name, code, out, errOut, fx.rt.keysSent())
+		}
+	}
+}
+
+func TestOpencodeSessionWithoutAUserMessageDoesNotHideAnUnsentBrief(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.opencodeSession(map[string]string{"messages": "model-switched,assistant"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeUnsentScreen, "working" })
+	out, errOut, code := startOpencode(fx, time.Second)
+	if code != 0 || !strings.Contains(out, "prompt: not submitted") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+}
+
+func TestOpencodeSlowAPIKeepsTheScreenFallback(t *testing.T) {
+	wait := *cli.APICheckWait
+	*cli.APICheckWait = 300 * time.Millisecond
+	t.Cleanup(func() { *cli.APICheckWait = wait })
+	fx := newAttemptFixture(t)
+	fx.opencodeSession(map[string]string{"messages": "user", "apisleep": "300s"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
+	out, errOut, code := startOpencode(fx, 10*time.Second)
+	if code != 0 || !strings.Contains(out, "prompt: submitted") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+	if orient := fx.h.ok("orient"); strings.Contains(orient, "blocked") {
+		t.Fatalf("orient = %q", orient)
+	}
+}
+
+func TestOpencodeStillLoadingOrHoldingTheBriefingIsNotSubmitted(t *testing.T) {
+	for name, c := range map[string]struct{ screen, status string }{
+		"loading":                 {"\n", "working"},
+		"in the input box":        {opencodeUnsentScreen, "working"},
+		"in the input box, done":  {opencodeUnsentScreen, "done"},
+		"no bar":                  {"  ┃  Fix the login bug\n  ┃  When you finish, report to Hand\n", "working"},
+		"changed box glyph":       {strings.ReplaceAll(opencodeUnsentScreen, "┃", "│"), "working"},
+		"empty box without a bar": {"  ┃\n  ┃\n", "working"},
+		"bar without a box":       {"\n" + opencodeBar + "\n", "working"},
+		"brief above an idle box": {opencodeWorking80x24, "idle"},
+		"bar below the real bar":  {opencodeUnsentScreen + "  " + opencodeBar + "\n", "working"},
+	} {
+		fx := newAttemptFixture(t)
+		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = c.screen, c.status })
+		out, errOut, code := startOpencode(fx, time.Second)
+		if code != 0 || !strings.Contains(out, "prompt: not submitted") || len(fx.rt.keysSent()) != 0 {
+			t.Fatalf("%s: code=%d out=%q stderr=%q keys=%q", name, code, out, errOut, fx.rt.keysSent())
+		}
+	}
+}
+
+func TestOpencodeUnsentBriefingGetsEnterWhenIdle(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.status, rt.afterKeys = opencodeUnsentScreen, 7, "idle", "working"
+	})
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "prompt: submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
 }
 
 func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {

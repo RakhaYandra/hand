@@ -213,6 +213,9 @@ func (w *watcher) session(ctx context.Context) error {
 				err = w.longTurns(sctx)
 			}
 			if err == nil {
+				err = w.unblock(sctx, c, caps)
+			}
+			if err == nil {
 				err = w.timers(sctx, c, caps)
 			}
 			if err == nil {
@@ -502,7 +505,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 			prev = ag.Status
 		case last == "attempt.blocked":
 			prev = "blocked"
-		case last == "attempt.long":
+		case last == "attempt.long", last == "attempt.working":
 		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
 		}
@@ -519,6 +522,31 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		if err := w.observe(ctx, c, a, ag.Status); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (w *watcher) unblock(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range live {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.seen[a.ID] == "blocked" {
+			continue
+		}
+		last, err := w.st.LastAttemptEvent(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		if last != "attempt.blocked" {
+			continue
+		}
+		if ag, err := c.Explain(ctx, a.PaneID); err == nil && ag.Status == "working" {
+			if err := w.observe(ctx, c, a, "working"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -558,12 +586,25 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.turns[a.ID] = &turn{since: w.r.env.Now()}
 	}
 	prev := w.seen[a.ID]
+	if status == "working" && prev != "blocked" && harness.Prefills(a.Harness) {
+		last, err := w.st.LastAttemptEvent(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		if last == "attempt.blocked" {
+			prev = "blocked"
+		}
+	}
 	if prev == status {
 		return nil
 	}
 	w.seen[a.ID] = status
 	ref := state.AttemptRef(a.ID)
 	switch status {
+	case "working":
+		if prev == "blocked" {
+			return w.st.NoteAttempt(ctx, a.ID, "working", "")
+		}
 	case "blocked":
 		detail := ""
 		if ag, err := c.Explain(ctx, a.PaneID); err == nil {

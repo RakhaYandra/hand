@@ -19,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 const liveAttemptsWarn = 5
@@ -152,6 +153,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: running.Worktree,
 			marker: reportMarker, thing: "briefing", who: "agent", model: running.Model, repos: repoRoots(project.Repo),
 			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,
+			submitted: opencodeSubmitted(r.home, running.Argv),
 		}, func(kind, detail string) error { return st.NoteAttempt(ctx, running.ID, kind, detail) })
 		if err != nil {
 			return err
@@ -187,17 +189,18 @@ const (
 	submitTries = 3
 )
 
-var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second
+var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait, apiCheckWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second, 5 * time.Second
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
 	thing, who, look, keys, screen, model       string
+	submitted                                   func(context.Context) bool
 	repos                                       []string
 }
 
 func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind, detail string) error) (fields [][2]string, help []string, err error) {
 	if harness.Prefills(l.harness) {
-		sent, confirmed := submitPrefilled(ctx, c, l.pane, l.terminalID, l.marker)
+		sent, confirmed := submitPrefilled(ctx, c, l.pane, l.terminalID, l.marker, l.submitted)
 		if sent {
 			if err := note("keys", "enter"); err != nil {
 				return nil, nil, err
@@ -276,10 +279,7 @@ type launchScreen struct {
 
 var launchScreens = map[string]launchScreen{
 	"opencode": {head: opencodeHead, problems: []launchProblem{{
-		seen: regexp.MustCompile(`·([^·]+?)\(unavailable\)`),
-		note: unavailableOpencode,
-	}, {
-		seen: regexp.MustCompile(`toast:(\S+)`),
+		seen: regexp.MustCompile(`·([^·]+?)\(unavai`),
 		note: unavailableOpencode,
 	}}},
 	"copilot": {banner: "uses AI.", problems: []launchProblem{{
@@ -302,35 +302,23 @@ func unavailableOpencode(model string, m []string) string {
 	return "opencode model " + model + " is unavailable: connect its provider or pick another model"
 }
 
-var (
-	opencodeToastTitle    = regexp.MustCompile(`┃\s+Model unavailable\s+\S\s+┃\s*$`)
-	opencodeToastSentence = regexp.MustCompile(`┃\s+(\S.*?) is not available in this session's location\s+┃\s*$`)
-)
-
 func opencodeHead(screen string) string {
-	lines := strings.Split(screen, "\n")
-	var out []string
-	bar := len(lines) - 1
-	for bar >= 0 && !strings.HasPrefix(strings.TrimSpace(lines[bar]), "╹") {
-		bar--
-	}
-	for i := bar - 1; i >= 0; i-- {
-		if l := strings.TrimSpace(lines[i]); strings.HasPrefix(l, "┃") {
-			out = append(out, l)
+	box := inputBox(screen)
+	start := len(box) - 1
+	for i := len(box) - 1; i >= 0; i-- {
+		if text := strings.TrimPrefix(strings.TrimSpace(box[i]), "┃"); strings.TrimSpace(text) == "" || strings.HasPrefix(text, "    ") {
+			start = i + 1
 			break
 		}
 	}
-	for i, l := range lines {
-		if !opencodeToastTitle.MatchString(l) {
-			continue
-		}
-		for _, next := range lines[i+1 : min(i+4, len(lines))] {
-			if m := opencodeToastSentence.FindStringSubmatch(next); m != nil {
-				out = append(out, "toast:"+m[1])
-			}
-		}
+	if start < 0 {
+		return ""
 	}
-	return strings.Join(out, "\n")
+	lines := make([]string, 0, len(box)-start)
+	for _, l := range box[start:] {
+		lines = append(lines, strings.TrimPrefix(strings.TrimSpace(l), "┃"))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func scanLaunch(ctx context.Context, c luvus.Client, harness, pane, model string) string {
@@ -398,7 +386,7 @@ func repoRoots(repo string) []string {
 	return []string{repo}
 }
 
-func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
+func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string, submitted func(context.Context) bool) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
@@ -408,7 +396,9 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		switch {
 		case luvus.Code(err) != "":
 			return sent, false
-		case err == nil && strings.Contains(s.Text, marker) && idle(ctx, c, pane):
+		case err == nil && (submitted != nil && submitted(ctx) || emptyInputBox(s.Text) && ran(ctx, c, pane)):
+			return sent, true
+		case err == nil && markerInInputBox(s.Text, marker) && idle(ctx, c, pane):
 			err := c.Keys(ctx, pane, []string{"enter"}, s.ContentRevision, terminalID)
 			if err == nil {
 				sent, tries = true, tries+1
@@ -428,6 +418,56 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		}
 	}
 	return sent, false
+}
+
+var inputStatus = regexp.MustCompile(`^\S+ .+ · \S`)
+
+func inputBox(screen string) []string {
+	lines := strings.Split(screen, "\n")
+	bar := len(lines) - 1
+	for bar >= 0 && !strings.HasPrefix(strings.TrimSpace(lines[bar]), "╹") {
+		bar--
+	}
+	if bar < 0 {
+		return nil
+	}
+	box := bar
+	for box > 0 && strings.HasPrefix(strings.TrimSpace(lines[box-1]), "┃") {
+		box--
+	}
+	return lines[box:bar]
+}
+
+func emptyInputBox(screen string) bool {
+	box := inputBox(screen)
+	return len(box) > 0 && !slices.ContainsFunc(box, func(l string) bool {
+		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "┃"))
+		return text != "" && !inputStatus.MatchString(text)
+	})
+}
+
+func markerInInputBox(screen, marker string) bool {
+	return strings.Contains(strings.Join(inputBox(screen), "\n"), marker)
+}
+
+func argvSession(argv []string) string {
+	if i := slices.Index(argv, "--session"); i >= 0 && i+1 < len(argv) {
+		return argv[i+1]
+	}
+	return ""
+}
+
+func opencodeSubmitted(home string, argv []string) func(context.Context) bool {
+	session := argvSession(argv)
+	return func(ctx context.Context) bool {
+		if session == "" || len(argv) == 0 {
+			return false
+		}
+		ctx, cancel := context.WithTimeout(ctx, apiCheckWait)
+		defer cancel()
+		ok, _ := transcript.OpencodeSubmitted(ctx, argv[0], home, session)
+		return ok
+	}
 }
 
 type trustScreen struct {
@@ -702,6 +742,11 @@ func unwrap(screen string) string {
 func idle(ctx context.Context, c luvus.Client, pane string) bool {
 	ag, err := c.Explain(ctx, pane)
 	return err == nil && ag.Status == "idle"
+}
+
+func ran(ctx context.Context, c luvus.Client, pane string) bool {
+	ag, err := c.Explain(ctx, pane)
+	return err == nil && (ag.Status == "working" || ag.Status == "done")
 }
 
 func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {

@@ -127,6 +127,20 @@ func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel
 	return models, nil
 }
 
+func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, error) {
+	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "session.message.list", "--param", "sessionID="+session, "--param", "type=user", "--param", "limit=1")
+	if err != nil {
+		return false, err
+	}
+	var list struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(out, &list) != nil || list.Data == nil {
+		return false, ErrUnreadable
+	}
+	return len(list.Data) > 0, nil
+}
+
 func (m exportModel) label() (model, effort string) {
 	if m.ID == "" {
 		return "", ""
