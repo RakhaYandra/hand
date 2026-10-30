@@ -11,7 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.idle", "attempt.limited", "attempt.long", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered", "supervisor.stalled", "timer.fired"}
+var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.limited", "attempt.long", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered", "supervisor.stalled", "timer.fired"}
 
 const (
 	waitPoll  = 250 * time.Millisecond
@@ -19,7 +19,7 @@ const (
 )
 
 func wakeEvents(ctx context.Context, st *state.Store, after int64) ([]state.Event, error) {
-	events, err := st.EventsAfter(ctx, after, wakeKinds, wakeBatch)
+	events, err := st.WakeEventsAfter(ctx, after, wakeKinds, wakeBatch)
 	if err != nil || len(events) == wakeBatch || slices.ContainsFunc(events, wakes) {
 		return events, err
 	}
@@ -27,7 +27,7 @@ func wakeEvents(ctx context.Context, st *state.Store, after int64) ([]state.Even
 }
 
 func wakes(e state.Event) bool {
-	return e.Kind != "attempt.idle" && (e.Kind != "attempt.reported" || !strings.HasSuffix(e.Detail, " "+state.ReportProgress))
+	return e.Kind != "attempt.reported" || !strings.HasSuffix(e.Detail, " "+state.ReportProgress)
 }
 
 func init() {
